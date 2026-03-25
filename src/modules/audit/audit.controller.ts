@@ -8,10 +8,7 @@ import {
 } from '@nestjs/swagger';
 import { AuditAction } from '@prisma/client';
 import { Permissions } from '../../common/decorators';
-import {
-  JwtAuthGuard,
-  PermissionsGuard,
-} from '../../common/guards';
+import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import { ApiAuthErrors } from '../../common/decorators/api-docs.decorator';
 import { AuditTrailService } from './audit.service';
 import { ListAuditTrailQueryDto } from './dto/list-audit-trail-query.dto';
@@ -108,4 +105,3 @@ export class AuditController {
     return this.auditTrailService.getAuditTrailById(id);
   }
 }
-

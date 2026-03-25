@@ -6,10 +6,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Permissions } from '../../common/decorators';
-import {
-  JwtAuthGuard,
-  PermissionsGuard,
-} from '../../common/guards';
+import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import { ApiAuthErrors } from '../../common/decorators/api-docs.decorator';
 import { UpsertSettingDto } from './dto';
 import { SettingsService } from './settings.service';
@@ -114,4 +111,3 @@ export class SettingsController {
     return this.settingsService.updateSetting(key, dto);
   }
 }
-
