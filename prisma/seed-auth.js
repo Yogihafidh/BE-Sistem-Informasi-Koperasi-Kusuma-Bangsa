@@ -155,7 +155,16 @@ async function seed() {
       update: {},
       create: {
         name: 'Admin',
-        description: 'Administrator dengan akses penuh',
+        description: 'Administrator sistem',
+      },
+    });
+
+    const superAdminRole = await prisma.role.upsert({
+      where: { name: 'Super Admin' },
+      update: {},
+      create: {
+        name: 'Super Admin',
+        description: 'Super administrator dengan akses penuh',
       },
     });
 
@@ -186,38 +195,73 @@ async function seed() {
       },
     });
 
-    console.log('Created roles: Admin, Kasir, Staff, Pimpinan');
+    console.log('Created roles: Super Admin, Admin, Kasir, Staff, Pimpinan');
 
-    // Assign all permissions to Admin
-    console.log('3.1 Assigning permissions to Admin role...');
+    // Load all permissions once
     const allPermissions = await prisma.permission.findMany();
+
+    // Assign all permissions to Super Admin
+    console.log('3.1 Assigning permissions to Super Admin role...');
+
+    await prisma.rolePermission.deleteMany({
+      where: { roleId: superAdminRole.id },
+    });
+
+    await prisma.rolePermission.createMany({
+      data: allPermissions.map((p) => ({
+        roleId: superAdminRole.id,
+        permissionId: p.id,
+      })),
+    });
+
+    console.log(`Assigned ${allPermissions.length} permissions to Super Admin`);
+
+    // Assign specific permissions to Admin (sesuai matriks UC)
+    console.log('3.2 Assigning permissions to Admin role...');
+    const adminPermissionCodes = [
+      'role.create',
+      'role.read',
+      'role.update',
+      'role.delete',
+      'permission.create',
+      'permission.read',
+      'permission.delete',
+      'user.read',
+      'user.update',
+      'pegawai.create',
+      'pegawai.read',
+      'pegawai.update',
+      'pegawai.delete',
+      'settings.read',
+      'settings.update',
+      'audit.read',
+    ];
+
+    const adminPermissions = await prisma.permission.findMany({
+      where: { code: { in: adminPermissionCodes } },
+    });
 
     await prisma.rolePermission.deleteMany({
       where: { roleId: adminRole.id },
     });
 
     await prisma.rolePermission.createMany({
-      data: allPermissions.map((p) => ({
+      data: adminPermissions.map((p) => ({
         roleId: adminRole.id,
         permissionId: p.id,
       })),
     });
 
-    console.log(`Assigned ${allPermissions.length} permissions to Admin`);
+    console.log(`Assigned ${adminPermissions.length} permissions to Admin`);
 
     // Assign specific permissions to Kasir
-    console.log('3.2 Assigning permissions to Kasir role...');
+    console.log('3.3 Assigning permissions to Kasir role...');
     const kasirPermissionCodes = [
-      'nasabah.read',
-      'simpanan.read',
       'simpanan.setor',
       'simpanan.tarik',
-      'pinjaman.read',
       'pinjaman.cairkan',
       'pinjaman.angsuran',
-      'transaksi.create',
-      'transaksi.read',
-      'dashboard.read',
+      'laporan.read',
     ];
 
     const kasirPermissions = await prisma.permission.findMany({
@@ -238,16 +282,15 @@ async function seed() {
     console.log(`Assigned ${kasirPermissions.length} permissions to Kasir`);
 
     // Assign specific permissions to Staff
-    console.log('3.3 Assigning permissions to Staff role...');
+    console.log('3.4 Assigning permissions to Staff role...');
     const staffPermissionCodes = [
       'nasabah.create',
       'nasabah.read',
       'nasabah.update',
-      'pegawai.read',
-      'simpanan.read',
+      'nasabah.delete',
+      'simpanan.setor',
       'pinjaman.ajukan',
-      'pinjaman.read',
-      'transaksi.read',
+      'pinjaman.angsuran',
     ];
 
     const staffPermissions = await prisma.permission.findMany({
@@ -268,21 +311,13 @@ async function seed() {
     console.log(`Assigned ${staffPermissions.length} permissions to Staff`);
 
     // Assign specific permissions to Pimpinan
-    console.log('3.4 Assigning permissions to Pimpinan role...');
+    console.log('3.5 Assigning permissions to Pimpinan role...');
     const pimpinanPermissionCodes = [
-      'nasabah.read',
       'nasabah.verify',
-      'pegawai.read',
-      'simpanan.read',
-      'pinjaman.read',
       'pinjaman.verify',
-      'transaksi.read',
-      'transaksi.process',
       'laporan.read',
       'laporan.generate',
       'laporan.finalize',
-      'dashboard.read',
-      'audit.read',
     ];
 
     const pimpinanPermissions = await prisma.permission.findMany({
@@ -304,55 +339,113 @@ async function seed() {
       `Assigned ${pimpinanPermissions.length} permissions to Pimpinan`,
     );
 
-    // Create default admin user
-    console.log('Creating default admin user...');
-    const hashedPassword = await bcrypt.hash('Admin@123', 10);
+    // Create default users for each role
+    console.log('4. Creating default users for all roles...');
 
-    const adminUser = await prisma.user.upsert({
-      where: { username: 'admin' },
-      update: {},
-      create: {
+    const defaultUsers = [
+      {
+        username: 'superadmin',
+        email: 'superadmin@koperasi.com',
+        password: 'SuperAdmin@123',
+        roleId: superAdminRole.id,
+        nama: 'Super Admin Koperasi',
+        jabatan: 'Super Administrator',
+        noHp: '081200000001',
+      },
+      {
         username: 'admin',
         email: 'admin@koperasi.com',
-        password: hashedPassword,
-        isActive: true,
-      },
-    });
-
-    await prisma.userRole.deleteMany({
-      where: { userId: adminUser.id },
-    });
-
-    await prisma.userRole.create({
-      data: {
-        userId: adminUser.id,
+        password: 'Admin@123',
         roleId: adminRole.id,
-      },
-    });
-
-    await prisma.pegawai.upsert({
-      where: { userId: adminUser.id },
-      update: {
         nama: 'Admin Koperasi',
         jabatan: 'Administrator',
         noHp: '081200000000',
-        alamat: 'Kantor Pusat Koperasi',
-        statusAktif: true,
       },
-      create: {
-        userId: adminUser.id,
-        nama: 'Admin Koperasi',
-        jabatan: 'Administrator',
-        noHp: '081200000000',
-        alamat: 'Kantor Pusat Koperasi',
-        statusAktif: true,
+      {
+        username: 'pimpinan',
+        email: 'pimpinan@koperasi.com',
+        password: 'Pimpinan@123',
+        roleId: pimpinanRole.id,
+        nama: 'Pimpinan Koperasi',
+        jabatan: 'Pimpinan',
+        noHp: '081200000002',
       },
-    });
+      {
+        username: 'staf',
+        email: 'staf@koperasi.com',
+        password: 'Staf@123',
+        roleId: staffRole.id,
+        nama: 'Staf Koperasi',
+        jabatan: 'Staff',
+        noHp: '081200000003',
+      },
+      {
+        username: 'kasir',
+        email: 'kasir@koperasi.com',
+        password: 'Kasir@123',
+        roleId: kasirRole.id,
+        nama: 'Kasir Koperasi',
+        jabatan: 'Kasir',
+        noHp: '081200000004',
+      },
+    ];
 
-    console.log('Created default admin user');
-    console.log('Username: admin');
-    console.log('Email: admin@koperasi.com');
-    console.log('Password: Admin@123');
+    for (const item of defaultUsers) {
+      const hashedPassword = await bcrypt.hash(item.password, 10);
+
+      const user = await prisma.user.upsert({
+        where: { username: item.username },
+        update: {
+          email: item.email,
+          password: hashedPassword,
+          isActive: true,
+        },
+        create: {
+          username: item.username,
+          email: item.email,
+          password: hashedPassword,
+          isActive: true,
+        },
+      });
+
+      await prisma.userRole.deleteMany({
+        where: { userId: user.id },
+      });
+
+      await prisma.userRole.create({
+        data: {
+          userId: user.id,
+          roleId: item.roleId,
+        },
+      });
+
+      await prisma.pegawai.upsert({
+        where: { userId: user.id },
+        update: {
+          nama: item.nama,
+          jabatan: item.jabatan,
+          noHp: item.noHp,
+          alamat: 'Kantor Pusat Koperasi',
+          statusAktif: true,
+        },
+        create: {
+          userId: user.id,
+          nama: item.nama,
+          jabatan: item.jabatan,
+          noHp: item.noHp,
+          alamat: 'Kantor Pusat Koperasi',
+          statusAktif: true,
+        },
+      });
+    }
+
+    console.log('Default users created/updated:');
+    for (const item of defaultUsers) {
+      console.log(`- Username: ${item.username}`);
+      console.log(`  Email: ${item.email}`);
+      console.log(`  Password: ${item.password}`);
+    }
+
     console.log('Auth seed completed successfully!');
   } catch (error) {
     console.error('Error seeding data:', error);

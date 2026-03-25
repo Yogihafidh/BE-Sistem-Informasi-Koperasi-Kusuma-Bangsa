@@ -20,10 +20,7 @@ import {
 import { SimpananService } from './simpanan.service';
 import { SimpananTransaksiDto } from './dto';
 import { CurrentUser, Permissions } from '../../common/decorators';
-import {
-  JwtAuthGuard,
-  PermissionsGuard,
-} from '../../common/guards';
+import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import {
   ApiAuthErrors,
   ApiBadRequestExample,
@@ -245,4 +242,3 @@ export class SimpananController {
     return this.simpananService.softDeleteRekening(id);
   }
 }
-

@@ -27,10 +27,7 @@ import {
   VerifikasiPinjamanDto,
 } from './dto';
 import { CurrentUser, Permissions } from '../../common/decorators';
-import {
-  JwtAuthGuard,
-  PermissionsGuard,
-} from '../../common/guards';
+import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import {
   ApiAuthErrors,
   ApiBadRequestExample,
@@ -371,4 +368,3 @@ export class PinjamanController {
     return this.pinjamanService.softDeletePinjaman(id);
   }
 }
-
