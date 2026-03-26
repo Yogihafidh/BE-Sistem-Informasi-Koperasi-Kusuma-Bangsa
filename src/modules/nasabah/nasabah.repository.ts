@@ -49,6 +49,7 @@ export class NasabahRepository {
       where: { id },
       select: {
         id: true,
+        userId: true,
         statusAktif: true,
       },
     });

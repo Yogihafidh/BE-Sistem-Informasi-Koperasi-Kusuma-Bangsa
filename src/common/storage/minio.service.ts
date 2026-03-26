@@ -7,6 +7,7 @@ import { JenisDokumen } from '@prisma/client';
 export class MinioService {
   private readonly client: Client;
   private readonly publicUrl: string;
+  private readonly presignedExpirySeconds: number;
   private readonly bucketMap: Record<JenisDokumen, string>;
   private readonly ensuredBuckets = new Set<string>();
 
@@ -24,6 +25,17 @@ export class MinioService {
     this.publicUrl =
       configService.get<string>('MINIO_PUBLIC_URL') ||
       `http://${endPoint}:${port}`;
+
+    const configuredExpiry = Number(
+      configService.get<string>('MINIO_PRESIGNED_EXPIRY_SECONDS') || '300',
+    );
+    const normalizedExpiry = Number.isFinite(configuredExpiry)
+      ? Math.floor(configuredExpiry)
+      : 300;
+    this.presignedExpirySeconds = Math.min(
+      604800,
+      Math.max(60, normalizedExpiry),
+    );
 
     this.bucketMap = {
       [JenisDokumen.KTP]: this.normalizeBucket(
@@ -90,5 +102,61 @@ export class MinioService {
 
   buildPublicUrl(bucket: string, objectName: string) {
     return `${this.publicUrl}/${bucket}/${objectName}`;
+  }
+
+  private extractBucketAndObjectFromUrl(fileUrl: string) {
+    const trimmed = fileUrl.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    let path = trimmed;
+    try {
+      path = new URL(trimmed).pathname;
+    } catch {
+      path = trimmed;
+    }
+
+    const normalizedPath = path.replace(/^\/+/, '');
+    const slashIndex = normalizedPath.indexOf('/');
+    if (slashIndex <= 0) {
+      return null;
+    }
+
+    const bucket = normalizedPath.slice(0, slashIndex);
+    const objectName = normalizedPath.slice(slashIndex + 1);
+    if (!bucket || !objectName) {
+      return null;
+    }
+
+    return {
+      bucket,
+      objectName,
+    };
+  }
+
+  async getPresignedGetUrl(
+    bucket: string,
+    objectName: string,
+    expiresInSeconds = this.presignedExpirySeconds,
+  ) {
+    return this.client.presignedGetObject(bucket, objectName, expiresInSeconds);
+  }
+
+  async buildAccessibleUrl(bucket: string, objectName: string) {
+    try {
+      return await this.getPresignedGetUrl(bucket, objectName);
+    } catch {
+      return this.buildPublicUrl(bucket, objectName);
+    }
+  }
+
+  async buildAccessibleUrlFromStoredUrl(fileUrl: string) {
+    const resolved = this.extractBucketAndObjectFromUrl(fileUrl);
+    if (!resolved) {
+      return fileUrl;
+    }
+
+    return this.buildAccessibleUrl(resolved.bucket, resolved.objectName);
   }
 }

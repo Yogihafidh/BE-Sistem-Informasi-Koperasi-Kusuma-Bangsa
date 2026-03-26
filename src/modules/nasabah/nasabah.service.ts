@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -36,6 +37,11 @@ type UploadFiles = {
   ktp?: UploadFile[];
   kk?: UploadFile[];
   slipGaji?: UploadFile[];
+};
+
+type RequestUser = {
+  userId: number;
+  roles: string[];
 };
 
 @Injectable()
@@ -101,6 +107,34 @@ export class NasabahService {
       status: item.status,
       tanggalDaftar: item.tanggalDaftar,
     };
+  }
+
+  private async toAccessibleDokumenUrls<
+    T extends { dokumen?: Array<{ fileUrl: string }> },
+  >(data: T): Promise<T> {
+    if (!data.dokumen || data.dokumen.length === 0) {
+      return data;
+    }
+
+    const dokumen = await Promise.all(
+      data.dokumen.map(async (item) => ({
+        ...item,
+        fileUrl: await this.minioService.buildAccessibleUrlFromStoredUrl(
+          item.fileUrl,
+        ),
+      })),
+    );
+
+    return {
+      ...data,
+      dokumen,
+    };
+  }
+
+  private isSuperAdmin(user: RequestUser) {
+    return user.roles.some(
+      (role) => role.trim().toLowerCase() === 'super admin',
+    );
   }
 
   private async generateNomorAnggota() {
@@ -214,15 +248,29 @@ export class NasabahService {
     };
   }
 
-  async getNasabahById(id: number) {
+  async getNasabahById(id: number, user: RequestUser) {
     const nasabah = await this.nasabahRepository.findNasabahById(id);
     if (!nasabah) {
       throw new NotFoundException('Nasabah tidak ditemukan');
     }
 
+    if (!this.isSuperAdmin(user)) {
+      const pegawaiPenanggungJawab =
+        await this.nasabahRepository.findPegawaiById(nasabah.pegawaiId);
+
+      if (pegawaiPenanggungJawab?.userId !== user.userId) {
+        throw new ForbiddenException(
+          'Anda tidak berhak mengakses dokumen nasabah ini',
+        );
+      }
+    }
+
+    const nasabahWithAccessibleDokumen =
+      await this.toAccessibleDokumenUrls(nasabah);
+
     return {
       message: 'Berhasil mengambil data nasabah',
-      data: nasabah as NasabahDetailDto,
+      data: nasabahWithAccessibleDokumen as NasabahDetailDto,
     };
   }
 
@@ -324,10 +372,25 @@ export class NasabahService {
     };
   }
 
-  async uploadDokumen(nasabahId: number, files: UploadFiles) {
+  async uploadDokumen(
+    nasabahId: number,
+    files: UploadFiles,
+    user: RequestUser,
+  ) {
     const nasabah = await this.nasabahRepository.findNasabahById(nasabahId);
     if (!nasabah) {
       throw new NotFoundException('Nasabah tidak ditemukan');
+    }
+
+    if (!this.isSuperAdmin(user)) {
+      const pegawaiPenanggungJawab =
+        await this.nasabahRepository.findPegawaiById(nasabah.pegawaiId);
+
+      if (pegawaiPenanggungJawab?.userId !== user.userId) {
+        throw new ForbiddenException(
+          'Anda tidak berhak mengunggah dokumen untuk nasabah ini',
+        );
+      }
     }
 
     const ktpFile = files.ktp?.[0];
@@ -396,7 +459,15 @@ export class NasabahService {
         fileUrl,
       });
 
-      results.push(dokumen);
+      const accessibleFileUrl = await this.minioService.buildAccessibleUrl(
+        bucket,
+        objectName,
+      );
+
+      results.push({
+        ...dokumen,
+        fileUrl: accessibleFileUrl,
+      });
     }
 
     return {

@@ -152,8 +152,11 @@ export class NasabahController {
   })
   @ApiNotFoundExample('Nasabah tidak ditemukan')
   @ApiAuthErrors()
-  getNasabahById(@Param('id', ParseIntPipe) id: number) {
-    return this.nasabahService.getNasabahById(id);
+  getNasabahById(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+  ) {
+    return this.nasabahService.getNasabahById(id, user);
   }
 
   @Patch(':id')
@@ -265,6 +268,7 @@ export class NasabahController {
   )
   uploadDokumen(
     @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
     @UploadedFiles()
     files: {
       ktp?: {
@@ -287,7 +291,7 @@ export class NasabahController {
       }[];
     },
   ) {
-    return this.nasabahService.uploadDokumen(id, files);
+    return this.nasabahService.uploadDokumen(id, files, user);
   }
 
   @Patch(':id/verifikasi')
