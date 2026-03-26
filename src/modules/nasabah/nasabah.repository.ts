@@ -242,12 +242,34 @@ export class NasabahRepository {
     data: {
       nasabahId: number;
       jenisDokumen: JenisDokumen;
-      fileUrl: string;
+      fileKey: string;
     },
     tx?: Prisma.TransactionClient,
   ) {
     const client = this.getClient(tx);
     return client.nasabahDokumen.create({
+      data,
+    });
+  }
+
+  findNasabahDokumenByJenis(nasabahId: number, jenisDokumen: JenisDokumen) {
+    return this.prisma.nasabahDokumen.findFirst({
+      where: { nasabahId, jenisDokumen },
+      orderBy: { uploadedAt: 'desc' },
+    });
+  }
+
+  updateNasabahDokumen(
+    id: number,
+    data: {
+      fileKey: string;
+      uploadedAt?: Date;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = this.getClient(tx);
+    return client.nasabahDokumen.update({
+      where: { id },
       data,
     });
   }

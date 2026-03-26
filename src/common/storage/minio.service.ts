@@ -104,12 +104,37 @@ export class MinioService {
     return `${this.publicUrl}/${bucket}/${objectName}`;
   }
 
-  private extractBucketAndObjectFromUrl(fileUrl: string) {
-    const trimmed = fileUrl.trim();
+  buildObjectKey(bucket: string, objectName: string) {
+    return `${bucket}/${objectName}`;
+  }
+
+  private extractBucketAndObjectFromStoredRef(storedRef: string) {
+    const trimmed = storedRef.trim();
     if (!trimmed) {
       return null;
     }
 
+    // New format: bucket/path/to/object
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      const plainRef = trimmed.replace(/^\/+/, '');
+      const slashIndex = plainRef.indexOf('/');
+      if (slashIndex <= 0) {
+        return null;
+      }
+
+      const bucket = plainRef.slice(0, slashIndex);
+      const objectName = plainRef.slice(slashIndex + 1);
+      if (!bucket || !objectName) {
+        return null;
+      }
+
+      return {
+        bucket,
+        objectName,
+      };
+    }
+
+    // Legacy format: full URL
     let path = trimmed;
     try {
       path = new URL(trimmed).pathname;
@@ -152,11 +177,25 @@ export class MinioService {
   }
 
   async buildAccessibleUrlFromStoredUrl(fileUrl: string) {
-    const resolved = this.extractBucketAndObjectFromUrl(fileUrl);
+    const resolved = this.extractBucketAndObjectFromStoredRef(fileUrl);
     if (!resolved) {
       return fileUrl;
     }
 
     return this.buildAccessibleUrl(resolved.bucket, resolved.objectName);
+  }
+
+  async deleteObjectByStoredRef(storedRef: string) {
+    const resolved = this.extractBucketAndObjectFromStoredRef(storedRef);
+    if (!resolved) {
+      return;
+    }
+
+    await this.ensureBucket(resolved.bucket);
+    try {
+      await this.client.removeObject(resolved.bucket, resolved.objectName);
+    } catch {
+      // Ignore delete failure to keep idempotent replacement flow.
+    }
   }
 }

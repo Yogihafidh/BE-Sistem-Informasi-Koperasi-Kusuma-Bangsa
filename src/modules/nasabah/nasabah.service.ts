@@ -110,7 +110,15 @@ export class NasabahService {
   }
 
   private async toAccessibleDokumenUrls<
-    T extends { dokumen?: Array<{ fileUrl: string }> },
+    T extends {
+      dokumen?: Array<{
+        id: number;
+        nasabahId: number;
+        jenisDokumen: JenisDokumen;
+        fileKey: string;
+        uploadedAt: Date;
+      }>;
+    },
   >(data: T): Promise<T> {
     if (!data.dokumen || data.dokumen.length === 0) {
       return data;
@@ -118,10 +126,13 @@ export class NasabahService {
 
     const dokumen = await Promise.all(
       data.dokumen.map(async (item) => ({
-        ...item,
+        id: item.id,
+        nasabahId: item.nasabahId,
+        jenisDokumen: item.jenisDokumen,
         fileUrl: await this.minioService.buildAccessibleUrlFromStoredUrl(
-          item.fileUrl,
+          item.fileKey,
         ),
+        uploadedAt: item.uploadedAt,
       })),
     );
 
@@ -270,7 +281,7 @@ export class NasabahService {
 
     return {
       message: 'Berhasil mengambil data nasabah',
-      data: nasabahWithAccessibleDokumen as NasabahDetailDto,
+      data: nasabahWithAccessibleDokumen as unknown as NasabahDetailDto,
     };
   }
 
@@ -452,11 +463,11 @@ export class NasabahService {
         item.file.mimetype,
       );
 
-      const fileUrl = this.minioService.buildPublicUrl(bucket, objectName);
+      const fileKey = this.minioService.buildObjectKey(bucket, objectName);
       const dokumen = await this.nasabahRepository.createNasabahDokumen({
         nasabahId,
         jenisDokumen: item.jenis,
-        fileUrl,
+        fileKey,
       });
 
       const accessibleFileUrl = await this.minioService.buildAccessibleUrl(
@@ -465,14 +476,100 @@ export class NasabahService {
       );
 
       results.push({
-        ...dokumen,
+        id: dokumen.id,
+        nasabahId: dokumen.nasabahId,
+        jenisDokumen: dokumen.jenisDokumen,
         fileUrl: accessibleFileUrl,
+        uploadedAt: dokumen.uploadedAt,
       });
     }
 
     return {
       message: 'Upload dokumen berhasil',
       data: results,
+    };
+  }
+
+  async updateDokumenNasabah(
+    nasabahId: number,
+    jenisDokumen: JenisDokumen,
+    file: UploadFile,
+    user: RequestUser,
+  ) {
+    if (!file) {
+      throw new BadRequestException('File dokumen wajib diunggah');
+    }
+
+    const nasabah = await this.nasabahRepository.findNasabahById(nasabahId);
+    if (!nasabah) {
+      throw new NotFoundException('Nasabah tidak ditemukan');
+    }
+
+    if (!this.isSuperAdmin(user)) {
+      const pegawaiPenanggungJawab =
+        await this.nasabahRepository.findPegawaiById(nasabah.pegawaiId);
+
+      if (pegawaiPenanggungJawab?.userId !== user.userId) {
+        throw new ForbiddenException(
+          'Anda tidak berhak memperbarui dokumen nasabah ini',
+        );
+      }
+    }
+
+    const allowedMime =
+      jenisDokumen === JenisDokumen.SLIP_GAJI
+        ? ['application/pdf']
+        : ['image/jpeg', 'image/png', 'application/pdf'];
+    const maxSizeMb = jenisDokumen === JenisDokumen.SLIP_GAJI ? 5 : 2;
+    this.validateFile(file, allowedMime, maxSizeMb);
+
+    const bucket = this.minioService.getBucketNameForJenis(jenisDokumen);
+    const safeName = file.originalname.replaceAll(/\s+/g, '-');
+    const objectName = `nasabah/${nasabahId}/${jenisDokumen.toLowerCase()}-${Date.now()}-${safeName}`;
+
+    await this.minioService.uploadObject(
+      bucket,
+      objectName,
+      file.buffer,
+      file.mimetype,
+    );
+
+    const existing = await this.nasabahRepository.findNasabahDokumenByJenis(
+      nasabahId,
+      jenisDokumen,
+    );
+
+    const oldStoredRef = existing?.fileKey;
+    if (oldStoredRef) {
+      await this.minioService.deleteObjectByStoredRef(oldStoredRef);
+    }
+
+    const fileKey = this.minioService.buildObjectKey(bucket, objectName);
+    const updatedDokumen = existing
+      ? await this.nasabahRepository.updateNasabahDokumen(existing.id, {
+          fileKey,
+          uploadedAt: new Date(),
+        })
+      : await this.nasabahRepository.createNasabahDokumen({
+          nasabahId,
+          jenisDokumen,
+          fileKey,
+        });
+
+    const accessibleFileUrl = await this.minioService.buildAccessibleUrl(
+      bucket,
+      objectName,
+    );
+
+    return {
+      message: 'Dokumen nasabah berhasil diperbarui',
+      data: {
+        id: updatedDokumen.id,
+        nasabahId: updatedDokumen.nasabahId,
+        jenisDokumen: updatedDokumen.jenisDokumen,
+        fileUrl: accessibleFileUrl,
+        uploadedAt: updatedDokumen.uploadedAt,
+      },
     };
   }
 

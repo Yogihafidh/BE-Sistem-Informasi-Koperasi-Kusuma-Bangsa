@@ -106,7 +106,7 @@ model NasabahDokumen {
   id           Int          @id @default(autoincrement())
   nasabahId    Int
   jenisDokumen JenisDokumen
-  fileUrl      String
+  fileKey      String
   uploadedAt   DateTime     @default(now()) @db.Timestamptz(3)
   nasabah      Nasabah      @relation(fields: [nasabahId], references: [id], onDelete: Cascade)
 }

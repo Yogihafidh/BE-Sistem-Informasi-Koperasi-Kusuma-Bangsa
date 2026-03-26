@@ -7,7 +7,9 @@ import {
   Patch,
   Post,
   ParseIntPipe,
+  ParseEnumPipe,
   Query,
+  UploadedFile,
   UploadedFiles,
   UseGuards,
   Req,
@@ -17,12 +19,17 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiParam,
   ApiQuery,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  FileInterceptor,
+} from '@nestjs/platform-express';
+import { JenisDokumen } from '@prisma/client';
 import { NasabahService } from './nasabah.service';
 import {
   CreateNasabahDto,
@@ -140,11 +147,48 @@ export class NasabahController {
         example: {
           message: 'Berhasil mengambil data nasabah',
           data: {
-            id: 1,
-            nomorAnggota: 'AGT-20260205-1234',
-            nama: 'Siti Aminah',
-            status: 'PENDING',
-            statusKeterangan: 'Menunggu verifikasi pimpinan',
+            id: 97,
+            userId: null,
+            pegawaiId: 125,
+            nomorAnggota: 'AGT-20260310-3079',
+            nama: 'Yono Sebastian',
+            nik: '3201010101010007',
+            alamat: 'Jl. Kenanga No. TEST, Bandung',
+            noHp: '081234567890',
+            pekerjaan: 'Wiraswasta',
+            instansi: 'PT Maju Jaya',
+            penghasilanBulanan: '6000000',
+            tanggalLahir: '1995-08-17T00:00:00.000Z',
+            tanggalDaftar: '2026-02-05T00:00:00.000Z',
+            status: 'AKTIF',
+            catatan: 'Dokumen valid',
+            createdAt: '2026-03-10T07:36:39.731Z',
+            updatedAt: '2026-03-10T07:40:31.441Z',
+            deletedAt: null,
+            pegawai: {
+              id: 125,
+              nama: 'Yogi Hafidh Maulana',
+              jabatan: 'Direktur Keuangan',
+            },
+            user: null,
+            dokumen: [
+              {
+                id: 5,
+                nasabahId: 97,
+                jenisDokumen: 'KTP',
+                fileUrl:
+                  'http://localhost:9000/ktp-docs/nasabah/97/ktp-1773128418963-file.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+                uploadedAt: '2026-03-10T07:40:19.023Z',
+              },
+              {
+                id: 6,
+                nasabahId: 97,
+                jenisDokumen: 'KK',
+                fileUrl:
+                  'http://localhost:9000/kk-docs/nasabah/97/kk-1773128419027-file.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+                uploadedAt: '2026-03-10T07:40:19.081Z',
+              },
+            ],
           },
         },
       },
@@ -241,14 +285,16 @@ export class NasabahController {
               id: 1,
               nasabahId: 1,
               jenisDokumen: 'KTP',
-              fileUrl: 'http://localhost:9000/ktp/nasabah/1/ktp.png',
+              fileUrl:
+                'http://localhost:9000/ktp-docs/nasabah/1/ktp-1773128418963-file.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
               uploadedAt: '2026-02-05T10:10:00.000Z',
             },
             {
               id: 2,
               nasabahId: 1,
               jenisDokumen: 'KK',
-              fileUrl: 'http://localhost:9000/kk/nasabah/1/kk.png',
+              fileUrl:
+                'http://localhost:9000/kk-docs/nasabah/1/kk-1773128419027-file.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
               uploadedAt: '2026-02-05T10:10:00.000Z',
             },
           ],
@@ -292,6 +338,73 @@ export class NasabahController {
     },
   ) {
     return this.nasabahService.uploadDokumen(id, files, user);
+  }
+
+  @Patch(':id/dokumen/:jenisDokumen')
+  @ApiBearerAuth('JWT-auth')
+  @Permissions('nasabah.update')
+  @ApiConsumes('multipart/form-data')
+  @ApiParam({
+    name: 'jenisDokumen',
+    enum: JenisDokumen,
+    description: 'Jenis dokumen yang ingin diperbarui',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiOperation({
+    summary: 'Update dokumen nasabah per jenis',
+    description:
+      'Upload file baru, hapus file lama di storage, lalu perbarui referensi dokumen di database.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Dokumen nasabah berhasil diperbarui',
+    content: {
+      'application/json': {
+        example: {
+          message: 'Dokumen nasabah berhasil diperbarui',
+          data: {
+            id: 5,
+            nasabahId: 97,
+            jenisDokumen: 'KTP',
+            fileUrl:
+              'http://localhost:9000/ktp-docs/nasabah/97/ktp-1773128418963-file.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+            uploadedAt: '2026-03-26T14:19:15.000Z',
+          },
+        },
+      },
+    },
+  })
+  @ApiBadRequestExample('File tidak valid')
+  @ApiNotFoundExample('Nasabah tidak ditemukan')
+  @ApiAuthErrors()
+  @UseInterceptors(FileInterceptor('file'))
+  updateDokumenNasabah(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('jenisDokumen', new ParseEnumPipe(JenisDokumen))
+    jenisDokumen: JenisDokumen,
+    @CurrentUser() user: UserFromJwt,
+    @UploadedFile()
+    file: {
+      buffer: Buffer;
+      originalname: string;
+      mimetype: string;
+      size: number;
+    },
+  ) {
+    return this.nasabahService.updateDokumenNasabah(
+      id,
+      jenisDokumen,
+      file,
+      user,
+    );
   }
 
   @Patch(':id/verifikasi')
