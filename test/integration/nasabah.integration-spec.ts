@@ -203,10 +203,16 @@ describe('Nasabah Module (Integration)', () => {
       expect(jenisList).toContain('SUKARELA');
     });
 
-    it('should reject re-verification of already verified nasabah', async () => {
-      await authPatch(app, `/api/nasabah/${nasabahId}/verifikasi`, adminToken)
-        .send({ status: 'AKTIF' })
-        .expect(400);
+    it('should allow re-verification of already verified nasabah', async () => {
+      const res = await authPatch(
+        app,
+        `/api/nasabah/${nasabahId}/verifikasi`,
+        adminToken,
+      )
+        .send({ status: 'DITOLAK', catatan: 'Perlu perbaikan data dokumen' })
+        .expect(200);
+
+      expect(res.body.data.status).toBe('DITOLAK');
     });
   });
 

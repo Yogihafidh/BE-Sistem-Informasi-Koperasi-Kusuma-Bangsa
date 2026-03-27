@@ -644,10 +644,6 @@ export class NasabahService {
       throw new NotFoundException('Nasabah tidak ditemukan');
     }
 
-    if (nasabah.status !== NasabahStatus.PENDING) {
-      throw new BadRequestException('Nasabah sudah diverifikasi');
-    }
-
     if (
       dto.status !== NasabahStatus.AKTIF &&
       dto.status !== NasabahStatus.DITOLAK
