@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -46,6 +47,8 @@ type RequestUser = {
 
 @Injectable()
 export class NasabahService {
+  private readonly logger = new Logger(NasabahService.name);
+
   constructor(
     private readonly nasabahRepository: NasabahRepository,
     private readonly minioService: MinioService,
@@ -146,6 +149,14 @@ export class NasabahService {
     return user.roles.some(
       (role) => role.trim().toLowerCase() === 'super admin',
     );
+  }
+
+  private isAdmin(user: RequestUser) {
+    return user.roles.some((role) => role.trim().toLowerCase() === 'admin');
+  }
+
+  private isAdminOrSuperAdmin(user: RequestUser) {
+    return this.isAdmin(user) || this.isSuperAdmin(user);
   }
 
   private async generateNomorAnggota() {
@@ -371,18 +382,6 @@ export class NasabahService {
     };
   }
 
-  async deleteNasabah(id: number) {
-    const nasabah = await this.nasabahRepository.findNasabahById(id);
-    if (!nasabah) {
-      throw new NotFoundException('Nasabah tidak ditemukan');
-    }
-
-    await this.nasabahRepository.softDeleteNasabah(id);
-    return {
-      message: 'Nasabah berhasil dihapus',
-    };
-  }
-
   async uploadDokumen(
     nasabahId: number,
     files: UploadFiles,
@@ -541,7 +540,14 @@ export class NasabahService {
 
     const oldStoredRef = existing?.fileKey;
     if (oldStoredRef) {
-      await this.minioService.deleteObjectByStoredRef(oldStoredRef);
+      try {
+        await this.minioService.deleteObjectByStoredRef(oldStoredRef);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `Gagal menghapus file lama MinIO saat update dokumen nasabah ${nasabahId}: ${message}`,
+        );
+      }
     }
 
     const fileKey = this.minioService.buildObjectKey(bucket, objectName);
@@ -570,6 +576,45 @@ export class NasabahService {
         fileUrl: accessibleFileUrl,
         uploadedAt: updatedDokumen.uploadedAt,
       },
+    };
+  }
+
+  async deleteDokumenNasabah(dokumenId: number, user: RequestUser) {
+    const dokumen =
+      await this.nasabahRepository.findNasabahDokumenById(dokumenId);
+    if (!dokumen) {
+      throw new NotFoundException('Dokumen nasabah tidak ditemukan');
+    }
+
+    if (dokumen.deletedAt) {
+      throw new BadRequestException('Dokumen nasabah sudah dihapus');
+    }
+
+    if (!this.isAdminOrSuperAdmin(user)) {
+      const pegawaiRequester = await this.nasabahRepository.findPegawaiByUserId(
+        user.userId,
+      );
+
+      if (pegawaiRequester?.id !== dokumen.nasabah.pegawaiId) {
+        throw new ForbiddenException(
+          'Anda tidak berhak menghapus dokumen nasabah ini',
+        );
+      }
+    }
+
+    try {
+      await this.minioService.deleteObjectByStoredRef(dokumen.fileKey);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Gagal menghapus file MinIO untuk dokumen ${dokumenId}: ${message}`,
+      );
+    }
+
+    await this.nasabahRepository.softDeleteNasabahDokumen(dokumenId);
+
+    return {
+      message: 'Dokumen nasabah berhasil dihapus',
     };
   }
 

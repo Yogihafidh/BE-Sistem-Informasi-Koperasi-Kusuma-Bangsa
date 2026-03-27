@@ -192,10 +192,6 @@ export class MinioService {
     }
 
     await this.ensureBucket(resolved.bucket);
-    try {
-      await this.client.removeObject(resolved.bucket, resolved.objectName);
-    } catch {
-      // Ignore delete failure to keep idempotent replacement flow.
-    }
+    await this.client.removeObject(resolved.bucket, resolved.objectName);
   }
 }

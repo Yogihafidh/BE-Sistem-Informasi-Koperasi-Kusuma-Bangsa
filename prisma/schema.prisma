@@ -107,8 +107,11 @@ model NasabahDokumen {
   nasabahId    Int
   jenisDokumen JenisDokumen
   fileKey      String
+  deletedAt    DateTime?    @db.Timestamptz(3)
   uploadedAt   DateTime     @default(now()) @db.Timestamptz(3)
   nasabah      Nasabah      @relation(fields: [nasabahId], references: [id], onDelete: Cascade)
+
+  @@index([nasabahId, deletedAt])
 }
 
 model RekeningSimpanan {

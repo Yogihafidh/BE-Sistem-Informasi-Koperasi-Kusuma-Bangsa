@@ -99,7 +99,9 @@ export class NasabahRepository {
         user: {
           select: { id: true, username: true, email: true },
         },
-        dokumen: true,
+        dokumen: {
+          where: { deletedAt: null },
+        },
       },
     });
   }
@@ -141,7 +143,9 @@ export class NasabahRepository {
         user: {
           select: { id: true, username: true, email: true },
         },
-        dokumen: true,
+        dokumen: {
+          where: { deletedAt: null },
+        },
       },
     });
   }
@@ -176,7 +180,9 @@ export class NasabahRepository {
         user: {
           select: { id: true, username: true, email: true },
         },
-        dokumen: true,
+        dokumen: {
+          where: { deletedAt: null },
+        },
       },
     });
   }
@@ -202,7 +208,9 @@ export class NasabahRepository {
         user: {
           select: { id: true, username: true, email: true },
         },
-        dokumen: true,
+        dokumen: {
+          where: { deletedAt: null },
+        },
       },
     });
   }
@@ -230,14 +238,6 @@ export class NasabahRepository {
     });
   }
 
-  softDeleteNasabah(id: number, tx?: Prisma.TransactionClient) {
-    const client = this.getClient(tx);
-    return client.nasabah.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-  }
-
   createNasabahDokumen(
     data: {
       nasabahId: number;
@@ -254,8 +254,22 @@ export class NasabahRepository {
 
   findNasabahDokumenByJenis(nasabahId: number, jenisDokumen: JenisDokumen) {
     return this.prisma.nasabahDokumen.findFirst({
-      where: { nasabahId, jenisDokumen },
+      where: { nasabahId, jenisDokumen, deletedAt: null },
       orderBy: { uploadedAt: 'desc' },
+    });
+  }
+
+  findNasabahDokumenById(id: number) {
+    return this.prisma.nasabahDokumen.findUnique({
+      where: { id },
+      include: {
+        nasabah: {
+          select: {
+            id: true,
+            pegawaiId: true,
+          },
+        },
+      },
     });
   }
 
@@ -271,6 +285,16 @@ export class NasabahRepository {
     return client.nasabahDokumen.update({
       where: { id },
       data,
+    });
+  }
+
+  softDeleteNasabahDokumen(id: number, tx?: Prisma.TransactionClient) {
+    const client = this.getClient(tx);
+    return client.nasabahDokumen.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+      },
     });
   }
 }

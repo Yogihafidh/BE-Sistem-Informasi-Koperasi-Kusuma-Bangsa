@@ -28,7 +28,6 @@ async function seed() {
       { code: 'nasabah.read', description: 'Read nasabah' },
       { code: 'nasabah.update', description: 'Update nasabah' },
       { code: 'nasabah.verify', description: 'Verify nasabah' },
-      { code: 'nasabah.delete', description: 'Delete nasabah' },
 
       { code: 'pegawai.create', description: 'Create pegawai' },
       { code: 'pegawai.read', description: 'Read pegawai' },
@@ -67,6 +66,21 @@ async function seed() {
         create: permission,
       });
     }
+
+    // Cleanup legacy permission that is no longer used.
+    await prisma.rolePermission.deleteMany({
+      where: {
+        permission: {
+          code: 'nasabah.delete',
+        },
+      },
+    });
+
+    await prisma.permission.deleteMany({
+      where: {
+        code: 'nasabah.delete',
+      },
+    });
 
     console.log(`Created ${permissions.length} permissions`);
 
@@ -287,7 +301,6 @@ async function seed() {
       'nasabah.create',
       'nasabah.read',
       'nasabah.update',
-      'nasabah.delete',
       'simpanan.setor',
       'pinjaman.ajukan',
       'pinjaman.angsuran',

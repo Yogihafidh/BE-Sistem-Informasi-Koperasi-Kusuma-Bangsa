@@ -81,7 +81,6 @@ export async function seedDatabase(p?: PrismaClient): Promise<void> {
     { code: 'nasabah.read', description: 'Read nasabah' },
     { code: 'nasabah.update', description: 'Update nasabah' },
     { code: 'nasabah.verify', description: 'Verify nasabah' },
-    { code: 'nasabah.delete', description: 'Delete nasabah' },
     { code: 'pegawai.create', description: 'Create pegawai' },
     { code: 'pegawai.read', description: 'Read pegawai' },
     { code: 'pegawai.update', description: 'Update pegawai' },

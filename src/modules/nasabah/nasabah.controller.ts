@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
   Param,
   Patch,
@@ -234,27 +233,6 @@ export class NasabahController {
     @Req() request: Request,
   ) {
     return this.nasabahService.updateNasabah(id, dto, user.userId, request.ip);
-  }
-
-  @Delete(':id')
-  @ApiBearerAuth('JWT-auth')
-  @Permissions('nasabah.delete')
-  @ApiOperation({ summary: 'Hapus data nasabah' })
-  @ApiResponse({
-    status: 200,
-    description: 'Nasabah berhasil dihapus',
-    content: {
-      'application/json': {
-        example: {
-          message: 'Nasabah berhasil dihapus',
-        },
-      },
-    },
-  })
-  @ApiNotFoundExample('Nasabah tidak ditemukan')
-  @ApiAuthErrors()
-  deleteNasabah(@Param('id', ParseIntPipe) id: number) {
-    return this.nasabahService.deleteNasabah(id);
   }
 
   @Post(':id/dokumen')
