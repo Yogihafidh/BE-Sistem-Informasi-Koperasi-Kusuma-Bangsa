@@ -15,6 +15,8 @@ import { PinjamanRepository } from './pinjaman.repository';
 import {
   AngsuranPinjamanDto,
   CreatePinjamanDto,
+  ListPinjamanQueryDto,
+  PinjamanNominalSort,
   PencairanPinjamanDto,
   VerifikasiPinjamanDto,
 } from './dto';
@@ -144,14 +146,119 @@ export class PinjamanService {
         take: DEFAULT_PAGE_SIZE,
       });
 
+    const sanitizedData = data.map(({ verifiedById, ...item }) => item);
+
     return {
       message: 'Berhasil mengambil data pinjaman nasabah',
-      data,
+      data: sanitizedData,
       pagination: {
         nextCursor,
         limit: DEFAULT_PAGE_SIZE,
         hasNext: nextCursor !== null,
       },
+    };
+  }
+
+  async listAllPinjaman(query: ListPinjamanQueryDto) {
+    const limit = DEFAULT_PAGE_SIZE;
+    let cursorNominal: Prisma.Decimal | undefined;
+
+    if (query.cursor) {
+      const anchor = await this.pinjamanRepository.findPinjamanCursorAnchor(
+        query.cursor,
+        query.status,
+      );
+
+      if (!anchor) {
+        throw new BadRequestException('Cursor tidak valid');
+      }
+
+      cursorNominal = anchor.jumlahPinjaman;
+    }
+
+    const rows = await this.pinjamanRepository.listAllPinjaman({
+      status: query.status,
+      nominalSort:
+        query.sort === PinjamanNominalSort.ASC
+          ? Prisma.SortOrder.asc
+          : Prisma.SortOrder.desc,
+      take: limit,
+      cursorNominal,
+      cursorId: query.cursor,
+    });
+
+    let nextCursor: number | null = null;
+    if (rows.length > limit) {
+      rows.pop();
+      const lastReturnedItem = rows.at(-1);
+      if (lastReturnedItem) {
+        nextCursor = lastReturnedItem.id;
+      }
+    }
+
+    const simplifiedData = rows.map((item) => ({
+      id: item.id,
+      jumlahPinjaman: String(item.jumlahPinjaman),
+      bungaPersen: String(item.bungaPersen),
+      tenorBulan: item.tenorBulan,
+      status: item.status,
+      nasabah: {
+        nama: item.nasabah.nama,
+      },
+    }));
+
+    return {
+      message: 'Berhasil mengambil semua data pinjaman',
+      data: simplifiedData,
+      pagination: {
+        limit,
+        nextCursor,
+        hasNext: nextCursor !== null,
+      },
+    };
+  }
+
+  async getPinjamanDetail(id: number) {
+    const pinjaman = await this.pinjamanRepository.findPinjamanDetailById(id);
+    if (!pinjaman) {
+      throw new NotFoundException('Pinjaman tidak ditemukan');
+    }
+
+    return {
+      message: 'Berhasil mengambil detail data pinjaman',
+      data: [
+        {
+          id: pinjaman.id,
+          jumlahPinjaman: String(pinjaman.jumlahPinjaman),
+          bungaPersen: String(pinjaman.bungaPersen),
+          tenorBulan: pinjaman.tenorBulan,
+          sisaPinjaman: String(pinjaman.sisaPinjaman),
+          status: pinjaman.status,
+          tanggalPersetujuan: pinjaman.tanggalPersetujuan,
+          nasabah: {
+            pegawaiId: pinjaman.nasabah.pegawaiId,
+            nomorAnggota: pinjaman.nasabah.nomorAnggota,
+            nama: pinjaman.nasabah.nama,
+            nik: pinjaman.nasabah.nik,
+            alamat: pinjaman.nasabah.alamat,
+            noHp: pinjaman.nasabah.noHp,
+            pekerjaan: pinjaman.nasabah.pekerjaan,
+            instansi: pinjaman.nasabah.instansi,
+            penghasilanBulanan: String(pinjaman.nasabah.penghasilanBulanan),
+            tanggalLahir: pinjaman.nasabah.tanggalLahir,
+            tanggalDaftar: pinjaman.nasabah.tanggalDaftar,
+            status: pinjaman.nasabah.status,
+            catatan: pinjaman.nasabah.catatan,
+          },
+          verifiedBy: pinjaman.verifiedBy
+            ? {
+                nama: pinjaman.verifiedBy.nama,
+                jabatan: pinjaman.verifiedBy.jabatan,
+                noHp: pinjaman.verifiedBy.noHp,
+              }
+            : null,
+        },
+      ],
     };
   }
 

@@ -23,6 +23,7 @@ import { PinjamanService } from './pinjaman.service';
 import {
   AngsuranPinjamanDto,
   CreatePinjamanDto,
+  ListPinjamanQueryDto,
   PencairanPinjamanDto,
   VerifikasiPinjamanDto,
 } from './dto';
@@ -41,6 +42,156 @@ import type { Request } from 'express';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class PinjamanController {
   constructor(private readonly pinjamanService: PinjamanService) {}
+
+  @Get()
+  @ApiBearerAuth('JWT-auth')
+  @Permissions('pinjaman.read')
+  @ApiOperation({
+    summary: 'Dapatkan semua pinjaman',
+    description:
+      'Mendukung filter berdasarkan status, sorting nominal pinjaman, dan cursor-based pagination.',
+  })
+  @ApiQuery({
+    name: 'cursor',
+    required: false,
+    example: 130,
+    description:
+      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['PENDING', 'DISETUJUI', 'DITOLAK', 'LUNAS'],
+    description: 'Filter status pinjaman',
+  })
+  @ApiQuery({
+    name: 'sort',
+    required: false,
+    enum: ['asc', 'desc'],
+    description: 'Urutkan nominal pinjaman (default: desc)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Daftar pinjaman berhasil diambil',
+    content: {
+      'application/json': {
+        examples: {
+          default: {
+            summary: 'Contoh default list pinjaman',
+            value: {
+              message: 'Berhasil mengambil semua data pinjaman',
+              data: [
+                {
+                  id: 101,
+                  jumlahPinjaman: '2000000',
+                  bungaPersen: '1.5',
+                  tenorBulan: 6,
+                  status: 'PENDING',
+                  nasabah: {
+                    nama: 'Yono Sebastian',
+                  },
+                },
+              ],
+              pagination: {
+                limit: 20,
+                nextCursor: 101,
+                hasNext: true,
+              },
+            },
+          },
+          pendingForPimpinan: {
+            summary: 'Contoh untuk pimpinan: pinjaman belum terverifikasi',
+            value: {
+              message: 'Berhasil mengambil semua data pinjaman',
+              data: [
+                {
+                  id: 130,
+                  jumlahPinjaman: '15000000',
+                  bungaPersen: '2.5',
+                  tenorBulan: 24,
+                  status: 'PENDING',
+                  nasabah: {
+                    nama: 'Yono Sebastian',
+                  },
+                },
+                {
+                  id: 129,
+                  jumlahPinjaman: '7500000',
+                  bungaPersen: '2.5',
+                  tenorBulan: 12,
+                  status: 'PENDING',
+                  nasabah: {
+                    nama: 'Siti Aminah',
+                  },
+                },
+              ],
+              pagination: {
+                limit: 20,
+                nextCursor: null,
+                hasNext: false,
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiAuthErrors()
+  listAllPinjaman(@Query() query: ListPinjamanQueryDto) {
+    return this.pinjamanService.listAllPinjaman(query);
+  }
+
+  @Get(':id')
+  @ApiBearerAuth('JWT-auth')
+  @Permissions('pinjaman.read')
+  @ApiOperation({ summary: 'Dapatkan detail pinjaman berdasarkan ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Detail pinjaman berhasil diambil',
+    content: {
+      'application/json': {
+        example: {
+          message: 'Berhasil mengambil detail data pinjaman',
+          data: [
+            {
+              id: 37,
+              jumlahPinjaman: '5000000',
+              bungaPersen: '2.5',
+              tenorBulan: 12,
+              sisaPinjaman: '0',
+              status: 'DISETUJUI',
+              tanggalPersetujuan: '2026-03-27T10:15:24.385Z',
+              nasabah: {
+                pegawaiId: 125,
+                nomorAnggota: 'AGT-20260310-3079',
+                nama: 'Yono Sebastian',
+                nik: '3201010101010007',
+                alamat: 'Jl. Kenanga No. TEST, Bandung',
+                noHp: '081234567890',
+                pekerjaan: 'Wiraswasta',
+                instansi: 'PT Maju Jaya',
+                penghasilanBulanan: '6000000',
+                tanggalLahir: '1995-08-17T00:00:00.000Z',
+                tanggalDaftar: '2026-02-05T00:00:00.000Z',
+                status: 'AKTIF',
+                catatan: 'Dokumen valid',
+              },
+              verifiedBy: {
+                nama: 'Super Admin Koperasi',
+                jabatan: 'Super Administrator',
+                noHp: '081200000001',
+              },
+            },
+          ],
+        },
+      },
+    },
+  })
+  @ApiNotFoundExample('Pinjaman tidak ditemukan')
+  @ApiAuthErrors()
+  getPinjamanDetail(@Param('id', ParseIntPipe) id: number) {
+    return this.pinjamanService.getPinjamanDetail(id);
+  }
 
   @Post()
   @ApiBearerAuth('JWT-auth')

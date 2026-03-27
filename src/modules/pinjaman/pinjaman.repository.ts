@@ -66,6 +66,45 @@ export class PinjamanRepository {
     });
   }
 
+  findPinjamanDetailById(id: number) {
+    return this.prisma.pinjaman.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        jumlahPinjaman: true,
+        bungaPersen: true,
+        tenorBulan: true,
+        sisaPinjaman: true,
+        status: true,
+        tanggalPersetujuan: true,
+        nasabah: {
+          select: {
+            pegawaiId: true,
+            nomorAnggota: true,
+            nama: true,
+            nik: true,
+            alamat: true,
+            noHp: true,
+            pekerjaan: true,
+            instansi: true,
+            penghasilanBulanan: true,
+            tanggalLahir: true,
+            tanggalDaftar: true,
+            status: true,
+            catatan: true,
+          },
+        },
+        verifiedBy: {
+          select: {
+            nama: true,
+            jabatan: true,
+            noHp: true,
+          },
+        },
+      },
+    });
+  }
+
   softDeletePinjaman(id: number) {
     return this.prisma.pinjaman.update({
       where: { id },
@@ -104,6 +143,78 @@ export class PinjamanRepository {
     }
 
     return { data, nextCursor };
+  }
+
+  listAllPinjaman(args: {
+    status?: PinjamanStatus;
+    nominalSort: Prisma.SortOrder;
+    take: number;
+    cursorNominal?: Prisma.Decimal;
+    cursorId?: number;
+  }) {
+    const where: Prisma.PinjamanWhereInput = {
+      deletedAt: null,
+      ...(args.status ? { status: args.status } : {}),
+    };
+
+    const hasCursor =
+      typeof args.cursorId === 'number' && args.cursorNominal !== undefined;
+    let cursorFilter: Prisma.PinjamanWhereInput | undefined;
+
+    if (hasCursor) {
+      if (args.nominalSort === Prisma.SortOrder.asc) {
+        cursorFilter = {
+          OR: [
+            { jumlahPinjaman: { gt: args.cursorNominal } },
+            {
+              AND: [
+                { jumlahPinjaman: args.cursorNominal },
+                { id: { gt: args.cursorId } },
+              ],
+            },
+          ],
+        };
+      } else {
+        cursorFilter = {
+          OR: [
+            { jumlahPinjaman: { lt: args.cursorNominal } },
+            {
+              AND: [
+                { jumlahPinjaman: args.cursorNominal },
+                { id: { lt: args.cursorId } },
+              ],
+            },
+          ],
+        };
+      }
+    }
+
+    return this.prisma.pinjaman.findMany({
+      where: {
+        ...where,
+        ...(cursorFilter ? { AND: [cursorFilter] } : {}),
+      },
+      include: {
+        nasabah: true,
+        verifiedBy: true,
+      },
+      orderBy: [{ jumlahPinjaman: args.nominalSort }, { id: args.nominalSort }],
+      take: args.take + 1,
+    });
+  }
+
+  findPinjamanCursorAnchor(cursorId: number, status?: PinjamanStatus) {
+    return this.prisma.pinjaman.findFirst({
+      where: {
+        id: cursorId,
+        deletedAt: null,
+        ...(status ? { status } : {}),
+      },
+      select: {
+        id: true,
+        jumlahPinjaman: true,
+      },
+    });
   }
 
   updatePinjamanStatus(
