@@ -44,7 +44,6 @@ async function seed() {
       { code: 'pinjaman.cairkan', description: 'Pencairan pinjaman' },
       { code: 'pinjaman.angsuran', description: 'Bayar angsuran pinjaman' },
 
-      { code: 'transaksi.create', description: 'Create transaksi' },
       { code: 'transaksi.read', description: 'Read transaksi' },
       { code: 'transaksi.process', description: 'Process transaksi' },
 
@@ -79,6 +78,20 @@ async function seed() {
     await prisma.permission.deleteMany({
       where: {
         code: 'nasabah.delete',
+      },
+    });
+
+    await prisma.rolePermission.deleteMany({
+      where: {
+        permission: {
+          code: 'transaksi.create',
+        },
+      },
+    });
+
+    await prisma.permission.deleteMany({
+      where: {
+        code: 'transaksi.create',
       },
     });
 

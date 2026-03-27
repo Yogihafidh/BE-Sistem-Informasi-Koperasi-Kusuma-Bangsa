@@ -15,12 +15,13 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { LaporanService } from './laporan.service';
-import { LaporanPeriodDto } from './dto';
-import { CurrentUser, Permissions } from '../../common/decorators';
 import {
-  JwtAuthGuard,
-  PermissionsGuard,
-} from '../../common/guards';
+  LaporanKeuanganQueryDto,
+  LaporanKeuanganResponseDto,
+  LaporanPeriodDto,
+} from './dto';
+import { CurrentUser, Permissions } from '../../common/decorators';
+import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import { ApiAuthErrors } from '../../common/decorators/api-docs.decorator';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
@@ -403,36 +404,52 @@ export class LaporanController {
   @Get('keuangan')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.read')
-  @ApiOperation({ summary: 'Lihat laporan keuangan (snapshot)' })
-  @ApiQuery({ name: 'bulan', required: true })
-  @ApiQuery({ name: 'tahun', required: true })
+  @ApiOperation({
+    summary: 'Lihat laporan keuangan koperasi (snapshot)',
+    description:
+      'Mengambil snapshot laporan keuangan terbaru atau berdasarkan periode tanpa menghitung ulang dari tabel transaksi.',
+  })
+  @ApiQuery({
+    name: 'bulan',
+    required: false,
+    description: 'Bulan laporan (1-12). Opsional.',
+  })
+  @ApiQuery({
+    name: 'tahun',
+    required: false,
+    description: 'Tahun laporan (YYYY). Opsional.',
+  })
   @ApiResponse({
     status: 200,
     description: 'Laporan keuangan berhasil diambil',
     content: {
       'application/json': {
         example: {
-          message: 'Berhasil mengambil laporan keuangan',
-          data: {
-            id: 1,
-            periodeBulan: 2,
-            periodeTahun: 2026,
-            totalSimpanan: 12000000,
-            totalPenarikan: 2500000,
-            totalPinjaman: 20000000,
-            totalAngsuran: 3500000,
-            saldoAkhir: 26000000,
-            statusLaporan: 'DRAFT',
-            generatedById: 1,
-            generatedAt: '2026-02-11T08:00:00.000Z',
-          },
+          periodeBulan: 2,
+          periodeTahun: 2026,
+          saldoAwal: 10000000,
+          totalSimpanan: 12000000,
+          totalAngsuran: 3500000,
+          totalPenarikan: 2500000,
+          totalPinjaman: 20000000,
+          totalPemasukan: 15500000,
+          totalPengeluaran: 22500000,
+          netCashflow: -7000000,
+          saldoAkhir: 3000000,
+          statusLaporan: 'DRAFT',
+          generatedById: 1,
+          generatedAt: '2026-02-11T08:00:00.000Z',
         },
       },
     },
+    type: LaporanKeuanganResponseDto,
   })
   @ApiAuthErrors()
-  getLaporanKeuangan(@Query() query: LaporanPeriodDto) {
-    return this.laporanService.getLaporanKeuangan(query.bulan, query.tahun);
+  getLaporanKeuangan(@Query() query: LaporanKeuanganQueryDto) {
+    return this.laporanService.getLaporanKeuanganSnapshot(
+      query.bulan,
+      query.tahun,
+    );
   }
 
   @Post('keuangan/:id/finalize')
@@ -468,4 +485,3 @@ export class LaporanController {
     return this.laporanService.finalizeLaporanKeuangan(id);
   }
 }
-

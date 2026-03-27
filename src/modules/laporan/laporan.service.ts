@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   JenisSimpanan,
@@ -1103,25 +1107,77 @@ export class LaporanService {
   }
 
   async getLaporanKeuangan(bulan: number, tahun: number) {
-    return this.cacheResponse(
-      this.getCacheKey('keuangan', bulan, tahun),
-      async () => {
-        const laporan =
-          await this.laporanRepository.findLaporanKeuanganByPeriode(
-            bulan,
-            tahun,
-          );
+    return this.getLaporanKeuanganSnapshot(bulan, tahun);
+  }
 
-        if (!laporan) {
-          throw new BadRequestException('Laporan keuangan tidak ditemukan');
-        }
+  private mapLaporanKeuanganSnapshot(laporan: {
+    periodeBulan: number;
+    periodeTahun: number;
+    totalSimpanan: Prisma.Decimal | number;
+    totalAngsuran: Prisma.Decimal | number;
+    totalPenarikan: Prisma.Decimal | number;
+    totalPinjaman: Prisma.Decimal | number;
+    saldoAkhir: Prisma.Decimal | number;
+    statusLaporan: StatusLaporan;
+    generatedById: number;
+    generatedAt: Date;
+  }) {
+    const totalSimpanan = this.toNumber(laporan.totalSimpanan);
+    const totalAngsuran = this.toNumber(laporan.totalAngsuran);
+    const totalPenarikan = this.toNumber(laporan.totalPenarikan);
+    const totalPinjaman = this.toNumber(laporan.totalPinjaman);
+    const saldoAkhir = this.toNumber(laporan.saldoAkhir);
 
-        return {
-          message: 'Berhasil mengambil laporan keuangan',
-          data: laporan,
-        };
-      },
-    );
+    const totalPemasukan = totalSimpanan + totalAngsuran;
+    const totalPengeluaran = totalPenarikan + totalPinjaman;
+    const netCashflow = totalPemasukan - totalPengeluaran;
+    const saldoAwal = saldoAkhir - netCashflow;
+
+    return {
+      periodeBulan: laporan.periodeBulan,
+      periodeTahun: laporan.periodeTahun,
+      saldoAwal,
+      totalSimpanan,
+      totalAngsuran,
+      totalPenarikan,
+      totalPinjaman,
+      totalPemasukan,
+      totalPengeluaran,
+      netCashflow,
+      saldoAkhir,
+      statusLaporan: laporan.statusLaporan,
+      generatedById: laporan.generatedById,
+      generatedAt: laporan.generatedAt.toISOString(),
+    };
+  }
+
+  async getLaporanKeuanganSnapshot(bulan?: number, tahun?: number) {
+    if ((bulan === undefined) !== (tahun === undefined)) {
+      throw new BadRequestException(
+        'Parameter bulan dan tahun harus dikirim bersamaan',
+      );
+    }
+
+    const cacheKey =
+      bulan !== undefined && tahun !== undefined
+        ? this.getCacheKey('keuangan:snapshot', bulan, tahun)
+        : 'laporan:keuangan:snapshot:latest';
+
+    return this.cacheResponse(cacheKey, async () => {
+      const laporan =
+        bulan !== undefined && tahun !== undefined
+          ? await this.laporanRepository.findLaporanKeuanganByPeriode(
+              bulan,
+              tahun,
+            )
+          : await this.laporanRepository.findLatestLaporanKeuangan();
+
+      if (!laporan) {
+        throw new NotFoundException('Laporan keuangan tidak ditemukan');
+      }
+
+      return this.mapLaporanKeuanganSnapshot(laporan);
+    });
   }
 
   async finalizeLaporanKeuangan(id: number) {

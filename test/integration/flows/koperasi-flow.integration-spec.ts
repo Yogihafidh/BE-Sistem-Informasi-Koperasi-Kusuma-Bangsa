@@ -116,11 +116,16 @@ describe('Full Koperasi Business Flow (Integration)', () => {
   it('Step 7: Verify saldo increased', async () => {
     const res = await authGet(
       app,
-      `/api/simpanan/rekening/${rekeningSukarelaId}`,
+      `/api/simpanan/nasabah/${nasabahId}`,
       adminToken,
     ).expect(200);
 
-    const saldo = parseFloat(res.body.data.saldoBerjalan);
+    const rekeningSukarela = res.body.data.find(
+      (item: { id: number }) => item.id === rekeningSukarelaId,
+    );
+    expect(rekeningSukarela).toBeDefined();
+
+    const saldo = parseFloat(rekeningSukarela.saldoBerjalan);
     expect(saldo).toBeGreaterThanOrEqual(2000000);
   });
 

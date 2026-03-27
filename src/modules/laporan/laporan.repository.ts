@@ -465,6 +465,12 @@ export class LaporanRepository {
     });
   }
 
+  findLatestLaporanKeuangan() {
+    return this.prisma.laporanKeuangan.findFirst({
+      orderBy: [{ periodeTahun: 'desc' }, { periodeBulan: 'desc' }],
+    });
+  }
+
   findPreviousFinalLaporan(bulan: number, tahun: number) {
     return this.prisma.laporanKeuangan.findFirst({
       where: {

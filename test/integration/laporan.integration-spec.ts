@@ -165,7 +165,27 @@ describe('Laporan Module (Integration)', () => {
         adminToken,
       ).expect(200);
 
-      expect(res.body.data).toBeDefined();
+      expect(res.body.periodeBulan).toBe(bulan);
+      expect(res.body.periodeTahun).toBe(tahun);
+      expect(res.body).toHaveProperty('saldoAwal');
+      expect(res.body).toHaveProperty('totalPemasukan');
+      expect(res.body).toHaveProperty('totalPengeluaran');
+      expect(res.body).toHaveProperty('netCashflow');
+      expect(res.body).toHaveProperty('saldoAkhir');
+      expect(res.body).toHaveProperty('statusLaporan');
+      expect(res.body).toHaveProperty('generatedById');
+      expect(res.body).toHaveProperty('generatedAt');
+    });
+
+    it('should get latest laporan keuangan when period is omitted', async () => {
+      const res = await authGet(
+        app,
+        '/api/laporan/keuangan',
+        adminToken,
+      ).expect(200);
+
+      expect(res.body.periodeBulan).toBe(bulan);
+      expect(res.body.periodeTahun).toBe(tahun);
     });
 
     it('should finalize laporan keuangan', async () => {

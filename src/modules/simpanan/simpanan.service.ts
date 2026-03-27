@@ -42,18 +42,6 @@ export class SimpananService {
     };
   }
 
-  async getRekeningById(id: number) {
-    const rekening = await this.simpananRepository.findRekeningById(id);
-    if (!rekening) {
-      throw new NotFoundException('Rekening simpanan tidak ditemukan');
-    }
-
-    return {
-      message: 'Berhasil mengambil detail rekening simpanan',
-      data: rekening,
-    };
-  }
-
   async setoranSimpanan(
     rekeningId: number,
     dto: SimpananTransaksiDto,

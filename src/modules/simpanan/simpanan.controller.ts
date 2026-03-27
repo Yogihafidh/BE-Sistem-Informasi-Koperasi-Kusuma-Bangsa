@@ -63,33 +63,6 @@ export class SimpananController {
     return this.simpananService.listRekeningByNasabah(nasabahId);
   }
 
-  @Get('rekening/:id')
-  @ApiBearerAuth('JWT-auth')
-  @Permissions('simpanan.read')
-  @ApiOperation({ summary: 'Dapatkan detail rekening simpanan' })
-  @ApiResponse({
-    status: 200,
-    description: 'Detail rekening simpanan berhasil diambil',
-    content: {
-      'application/json': {
-        example: {
-          message: 'Berhasil mengambil detail rekening simpanan',
-          data: {
-            id: 11,
-            nasabahId: 1,
-            jenisSimpanan: 'SUKARELA',
-            saldoBerjalan: 2500000,
-          },
-        },
-      },
-    },
-  })
-  @ApiNotFoundExample('Rekening simpanan tidak ditemukan')
-  @ApiAuthErrors()
-  getRekeningById(@Param('id', ParseIntPipe) id: number) {
-    return this.simpananService.getRekeningById(id);
-  }
-
   @Post('rekening/:id/setoran')
   @ApiBearerAuth('JWT-auth')
   @Permissions('simpanan.setor')

@@ -93,7 +93,6 @@ export async function seedDatabase(p?: PrismaClient): Promise<void> {
     { code: 'pinjaman.verify', description: 'Verifikasi pinjaman' },
     { code: 'pinjaman.cairkan', description: 'Pencairan pinjaman' },
     { code: 'pinjaman.angsuran', description: 'Bayar angsuran pinjaman' },
-    { code: 'transaksi.create', description: 'Create transaksi' },
     { code: 'transaksi.read', description: 'Read transaksi' },
     { code: 'transaksi.process', description: 'Process transaksi' },
     { code: 'laporan.read', description: 'Read laporan' },
@@ -233,7 +232,6 @@ export async function seedDatabase(p?: PrismaClient): Promise<void> {
     'pinjaman.read',
     'pinjaman.cairkan',
     'pinjaman.angsuran',
-    'transaksi.create',
     'transaksi.read',
     'dashboard.read',
   ];

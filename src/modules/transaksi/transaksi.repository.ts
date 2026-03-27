@@ -86,23 +86,6 @@ export class TransaksiRepository {
     });
   }
 
-  createTransaksi(data: {
-    nasabahId: number;
-    pegawaiId: number;
-    rekeningSimpananId?: number;
-    pinjamanId?: number;
-    jenisTransaksi: JenisTransaksi;
-    nominal: number;
-    tanggal: Date;
-    metodePembayaran: string;
-    catatan?: string;
-  }) {
-    return this.prisma.transaksi.create({
-      data,
-      select: this.transaksiSummarySelect,
-    });
-  }
-
   findTransaksiSummaryById(id: number) {
     return this.prisma.transaksi.findFirst({
       where: { id, deletedAt: null },

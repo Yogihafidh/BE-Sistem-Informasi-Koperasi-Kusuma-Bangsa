@@ -60,20 +60,6 @@ describe('Simpanan Module (Integration)', () => {
     });
   });
 
-  describe('GET /api/simpanan/rekening/:id', () => {
-    it('should get rekening detail', async () => {
-      const res = await authGet(
-        app,
-        `/api/simpanan/rekening/${rekeningSukarela.id}`,
-        adminToken,
-      ).expect(200);
-
-      expect(res.body.data).toHaveProperty('id', rekeningSukarela.id);
-      expect(res.body.data).toHaveProperty('jenisSimpanan', 'SUKARELA');
-      expect(res.body.data).toHaveProperty('saldoBerjalan');
-    });
-  });
-
   describe('POST /api/simpanan/rekening/:id/setoran', () => {
     it('should process setoran on SUKARELA rekening', async () => {
       const res = await authPost(
@@ -94,11 +80,16 @@ describe('Simpanan Module (Integration)', () => {
     it('should update saldo after setoran', async () => {
       const res = await authGet(
         app,
-        `/api/simpanan/rekening/${rekeningSukarela.id}`,
+        `/api/simpanan/nasabah/${nasabahId}`,
         adminToken,
       ).expect(200);
 
-      const saldo = Number.parseFloat(res.body.data.saldoBerjalan);
+      const rekening = res.body.data.find(
+        (item: { id: number }) => item.id === rekeningSukarela.id,
+      );
+      expect(rekening).toBeDefined();
+
+      const saldo = Number.parseFloat(rekening.saldoBerjalan);
       expect(saldo).toBeGreaterThanOrEqual(500000);
     });
 
@@ -197,12 +188,6 @@ describe('Simpanan Module (Integration)', () => {
       ).expect(200);
 
       expect(res.body.message).toBe('Rekening simpanan berhasil dihapus');
-
-      await authGet(
-        app,
-        `/api/simpanan/rekening/${rekeningZero!.id}`,
-        adminToken,
-      ).expect(404);
 
       const listRes = await authGet(
         app,

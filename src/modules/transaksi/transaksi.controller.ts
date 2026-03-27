@@ -1,17 +1,14 @@
 import {
-  Body,
   Controller,
   Delete,
   Get,
   Param,
   ParseIntPipe,
-  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiBody,
   ApiOperation,
   ApiQuery,
   ApiResponse,
@@ -19,65 +16,18 @@ import {
 } from '@nestjs/swagger';
 import { JenisTransaksi } from '@prisma/client';
 import { TransaksiService } from './transaksi.service';
-import { CreateTransaksiDto } from './dto';
-import { CurrentUser, Permissions } from '../../common/decorators';
+import { Permissions } from '../../common/decorators';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import {
   ApiAuthErrors,
-  ApiBadRequestExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
-import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
 @ApiTags('transaksi')
 @Controller('transaksi')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class TransaksiController {
   constructor(private readonly transaksiService: TransaksiService) {}
-
-  @Post()
-  @ApiBearerAuth('JWT-auth')
-  @Permissions('transaksi.create')
-  @ApiOperation({
-    summary: 'Buat transaksi baru',
-    description:
-      'Mencatat transaksi setelah validasi bisnis, update saldo/pinjaman, lalu menyimpan histori transaksi yang berhasil.',
-  })
-  @ApiBody({
-    description:
-      'Isi data transaksi. Gunakan rekeningSimpananId untuk SETORAN/PENARIKAN, pinjamanId untuk PENCAIRAN/ANGSURAN.',
-    type: CreateTransaksiDto,
-  })
-  @ApiResponse({
-    status: 201,
-    description: 'Transaksi berhasil dicatat',
-    content: {
-      'application/json': {
-        example: {
-          message: 'Transaksi berhasil diproses',
-          data: {
-            id: 1,
-            nasabahId: 1,
-            pegawaiId: 2,
-            rekeningSimpananId: 10,
-            jenisTransaksi: 'SETORAN',
-            nominal: 150000,
-            metodePembayaran: 'TRANSFER',
-            tanggal: '2026-02-09T10:00:00.000Z',
-          },
-        },
-      },
-    },
-  })
-  @ApiBadRequestExample('Data transaksi tidak valid')
-  @ApiNotFoundExample('Nasabah tidak ditemukan')
-  @ApiAuthErrors()
-  createTransaksi(
-    @Body() dto: CreateTransaksiDto,
-    @CurrentUser() user: UserFromJwt,
-  ) {
-    return this.transaksiService.createTransaksi(dto, user.userId);
-  }
 
   @Get()
   @ApiBearerAuth('JWT-auth')
