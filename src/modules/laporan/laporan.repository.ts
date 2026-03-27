@@ -471,6 +471,10 @@ export class LaporanRepository {
     });
   }
 
+  findLatestLaporanKeuanganSnapshot() {
+    return this.findLatestLaporanKeuangan();
+  }
+
   findPreviousFinalLaporan(bulan: number, tahun: number) {
     return this.prisma.laporanKeuangan.findFirst({
       where: {

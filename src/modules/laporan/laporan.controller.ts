@@ -25,16 +25,16 @@ import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import { ApiAuthErrors } from '../../common/decorators/api-docs.decorator';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
-@ApiTags('laporan')
-@Controller('laporan')
+@ApiTags('rekapitulasi')
+@Controller()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class LaporanController {
   constructor(private readonly laporanService: LaporanService) {}
 
-  @Get('bulanan')
+  @Get('rekapitulasi/bulanan')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.read')
-  @ApiOperation({ summary: 'Laporan bulanan (executive summary)' })
+  @ApiOperation({ summary: 'Rekapitulasi bulanan (executive summary)' })
   @ApiQuery({ name: 'bulan', required: true })
   @ApiQuery({ name: 'tahun', required: true })
   @ApiResponse({
@@ -81,10 +81,10 @@ export class LaporanController {
     return this.laporanService.getLaporanBulanan(query.bulan, query.tahun);
   }
 
-  @Get('transaksi')
+  @Get('rekapitulasi/transaksi')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.read')
-  @ApiOperation({ summary: 'Laporan transaksi lengkap' })
+  @ApiOperation({ summary: 'Rekapitulasi transaksi lengkap' })
   @ApiQuery({ name: 'bulan', required: true })
   @ApiQuery({ name: 'tahun', required: true })
   @ApiResponse({
@@ -137,10 +137,10 @@ export class LaporanController {
     return this.laporanService.getLaporanTransaksi(query.bulan, query.tahun);
   }
 
-  @Get('angsuran')
+  @Get('rekapitulasi/angsuran')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.read')
-  @ApiOperation({ summary: 'Laporan angsuran' })
+  @ApiOperation({ summary: 'Rekapitulasi angsuran' })
   @ApiQuery({ name: 'bulan', required: true })
   @ApiQuery({ name: 'tahun', required: true })
   @ApiResponse({
@@ -172,10 +172,10 @@ export class LaporanController {
     return this.laporanService.getLaporanAngsuran(query.bulan, query.tahun);
   }
 
-  @Get('penarikan')
+  @Get('rekapitulasi/penarikan')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.read')
-  @ApiOperation({ summary: 'Laporan penarikan' })
+  @ApiOperation({ summary: 'Rekapitulasi penarikan' })
   @ApiQuery({ name: 'bulan', required: true })
   @ApiQuery({ name: 'tahun', required: true })
   @ApiResponse({
@@ -207,10 +207,10 @@ export class LaporanController {
     return this.laporanService.getLaporanPenarikan(query.bulan, query.tahun);
   }
 
-  @Get('pinjaman')
+  @Get('rekapitulasi/pinjaman')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.read')
-  @ApiOperation({ summary: 'Laporan pinjaman' })
+  @ApiOperation({ summary: 'Rekapitulasi pinjaman' })
   @ApiQuery({ name: 'bulan', required: true })
   @ApiQuery({ name: 'tahun', required: true })
   @ApiResponse({
@@ -242,10 +242,10 @@ export class LaporanController {
     return this.laporanService.getLaporanPinjaman(query.bulan, query.tahun);
   }
 
-  @Get('simpanan')
+  @Get('rekapitulasi/simpanan')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.read')
-  @ApiOperation({ summary: 'Laporan simpanan' })
+  @ApiOperation({ summary: 'Rekapitulasi simpanan' })
   @ApiQuery({ name: 'bulan', required: true })
   @ApiQuery({ name: 'tahun', required: true })
   @ApiResponse({
@@ -278,10 +278,10 @@ export class LaporanController {
     return this.laporanService.getLaporanSimpanan(query.bulan, query.tahun);
   }
 
-  @Get('cashflow')
+  @Get('rekapitulasi/cashflow')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.read')
-  @ApiOperation({ summary: 'Laporan cashflow' })
+  @ApiOperation({ summary: 'Rekapitulasi cashflow' })
   @ApiQuery({ name: 'bulan', required: true })
   @ApiQuery({ name: 'tahun', required: true })
   @ApiResponse({
@@ -318,10 +318,10 @@ export class LaporanController {
     return this.laporanService.getLaporanCashflow(query.bulan, query.tahun);
   }
 
-  @Get('anggota')
+  @Get('rekapitulasi/anggota')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.read')
-  @ApiOperation({ summary: 'Laporan anggota' })
+  @ApiOperation({ summary: 'Rekapitulasi anggota' })
   @ApiQuery({ name: 'bulan', required: true })
   @ApiQuery({ name: 'tahun', required: true })
   @ApiResponse({
@@ -359,7 +359,7 @@ export class LaporanController {
     return this.laporanService.getLaporanAnggota(query.bulan, query.tahun);
   }
 
-  @Post('keuangan/generate')
+  @Post('laporan/keuangan/generate')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.generate')
   @ApiOperation({ summary: 'Generate laporan keuangan (snapshot)' })
@@ -401,7 +401,7 @@ export class LaporanController {
     );
   }
 
-  @Get('keuangan')
+  @Get('laporan/keuangan')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.read')
   @ApiOperation({
@@ -452,7 +452,7 @@ export class LaporanController {
     );
   }
 
-  @Post('keuangan/:id/finalize')
+  @Post('laporan/keuangan/:id/finalize')
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.finalize')
   @ApiOperation({ summary: 'Finalisasi laporan keuangan (snapshot)' })

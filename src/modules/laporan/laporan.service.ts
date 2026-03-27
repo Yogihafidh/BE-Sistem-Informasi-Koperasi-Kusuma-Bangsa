@@ -1,12 +1,14 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   JenisSimpanan,
   JenisTransaksi,
+  LaporanKeuangan,
   NasabahStatus,
   Prisma,
   StatusLaporan,
@@ -16,6 +18,16 @@ import { CacheService } from '../../common/cache/cache.service';
 
 @Injectable()
 export class LaporanService {
+  private readonly logger = new Logger(LaporanService.name);
+
+  private static readonly CACHE_KEY = {
+    REKAPITULASI_PREFIX: 'laporan',
+    KEUANGAN_SNAPSHOT_PREFIX: 'laporan:keuangan:snapshot',
+    KEUANGAN_LATEST: 'laporan:keuangan:latest',
+    // Backward compatibility for older key shape before snapshot refactor.
+    KEUANGAN_LEGACY_PREFIX: 'laporan:keuangan',
+  } as const;
+
   constructor(
     private readonly laporanRepository: LaporanRepository,
     private readonly cacheService: CacheService,
@@ -23,14 +35,57 @@ export class LaporanService {
   ) {}
 
   private getCacheKey(type: string, bulan: number, tahun: number) {
-    return `laporan:${type}:${tahun}:${bulan}`;
+    return `${LaporanService.CACHE_KEY.REKAPITULASI_PREFIX}:${type}:${tahun}:${bulan}`;
+  }
+
+  private getKeuanganSnapshotKey(bulan: number, tahun: number) {
+    return `${LaporanService.CACHE_KEY.KEUANGAN_SNAPSHOT_PREFIX}:${tahun}:${bulan}`;
+  }
+
+  private getKeuanganLatestKey() {
+    return LaporanService.CACHE_KEY.KEUANGAN_LATEST;
+  }
+
+  private getLegacyKeuanganKey(bulan: number, tahun: number) {
+    return `${LaporanService.CACHE_KEY.KEUANGAN_LEGACY_PREFIX}:${tahun}:${bulan}`;
+  }
+
+  private async invalidateKeuanganSnapshotCache(bulan: number, tahun: number) {
+    const keys = [
+      this.getKeuanganSnapshotKey(bulan, tahun),
+      this.getKeuanganLatestKey(),
+      this.getLegacyKeuanganKey(bulan, tahun),
+    ];
+
+    for (const key of keys) {
+      await this.cacheService.del(key);
+      this.logger.log(`Cache invalidated: ${key}`);
+    }
   }
 
   private getCacheTtlSeconds() {
     return this.configService.get<number>('app.cacheTtlLaporanSeconds') ?? 900;
   }
 
+  private isRealtimeRekapitulasiKey(key: string) {
+    return (
+      key.startsWith('laporan:bulanan:') ||
+      key.startsWith('laporan:transaksi:') ||
+      key.startsWith('laporan:angsuran:') ||
+      key.startsWith('laporan:penarikan:') ||
+      key.startsWith('laporan:pinjaman:') ||
+      key.startsWith('laporan:simpanan:') ||
+      key.startsWith('laporan:cashflow:') ||
+      key.startsWith('laporan:anggota:')
+    );
+  }
+
   private async cacheResponse<T>(key: string, loader: () => Promise<T>) {
+    // Rekapitulasi harus real-time, jadi jangan ambil/isi cache untuk key ini.
+    if (this.isRealtimeRekapitulasiKey(key)) {
+      return loader();
+    }
+
     const cached = await this.cacheService.getJson<T>(key);
     if (cached) {
       return cached;
@@ -1098,7 +1153,7 @@ export class LaporanService {
           generatedAt,
         });
 
-    await this.cacheService.del(this.getCacheKey('keuangan', bulan, tahun));
+    await this.invalidateKeuanganSnapshotCache(bulan, tahun);
 
     return {
       message: 'Laporan keuangan berhasil di-generate',
@@ -1110,18 +1165,7 @@ export class LaporanService {
     return this.getLaporanKeuanganSnapshot(bulan, tahun);
   }
 
-  private mapLaporanKeuanganSnapshot(laporan: {
-    periodeBulan: number;
-    periodeTahun: number;
-    totalSimpanan: Prisma.Decimal | number;
-    totalAngsuran: Prisma.Decimal | number;
-    totalPenarikan: Prisma.Decimal | number;
-    totalPinjaman: Prisma.Decimal | number;
-    saldoAkhir: Prisma.Decimal | number;
-    statusLaporan: StatusLaporan;
-    generatedById: number;
-    generatedAt: Date;
-  }) {
+  private mapLaporanKeuanganSnapshot(laporan: LaporanKeuangan) {
     const totalSimpanan = this.toNumber(laporan.totalSimpanan);
     const totalAngsuran = this.toNumber(laporan.totalAngsuran);
     const totalPenarikan = this.toNumber(laporan.totalPenarikan);
@@ -1151,6 +1195,19 @@ export class LaporanService {
     };
   }
 
+  private isLaporanKeuanganRecord(value: unknown): value is LaporanKeuangan {
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+
+    const record = value as Partial<LaporanKeuangan>;
+    return (
+      typeof record.periodeBulan === 'number' &&
+      typeof record.periodeTahun === 'number' &&
+      record.generatedAt instanceof Date
+    );
+  }
+
   async getLaporanKeuanganSnapshot(bulan?: number, tahun?: number) {
     if ((bulan === undefined) !== (tahun === undefined)) {
       throw new BadRequestException(
@@ -1160,21 +1217,32 @@ export class LaporanService {
 
     const cacheKey =
       bulan !== undefined && tahun !== undefined
-        ? this.getCacheKey('keuangan:snapshot', bulan, tahun)
-        : 'laporan:keuangan:snapshot:latest';
+        ? this.getKeuanganSnapshotKey(bulan, tahun)
+        : this.getKeuanganLatestKey();
 
     return this.cacheResponse(cacheKey, async () => {
-      const laporan =
-        bulan !== undefined && tahun !== undefined
-          ? await this.laporanRepository.findLaporanKeuanganByPeriode(
-              bulan,
-              tahun,
-            )
-          : await this.laporanRepository.findLatestLaporanKeuangan();
+      let laporanRaw: unknown = null;
+      if (bulan !== undefined && tahun !== undefined) {
+        laporanRaw = await this.laporanRepository.findLaporanKeuanganByPeriode(
+          bulan,
+          tahun,
+        );
+      } else {
+        const repository = this.laporanRepository as {
+          findLatestLaporanKeuanganSnapshot: () => Promise<LaporanKeuangan | null>;
+        };
+        laporanRaw = await repository.findLatestLaporanKeuanganSnapshot();
+      }
 
-      if (!laporan) {
+      if (laporanRaw === null) {
         throw new NotFoundException('Laporan keuangan tidak ditemukan');
       }
+
+      if (!this.isLaporanKeuanganRecord(laporanRaw)) {
+        throw new BadRequestException('Data laporan keuangan tidak valid');
+      }
+
+      const laporan = laporanRaw;
 
       return this.mapLaporanKeuanganSnapshot(laporan);
     });
@@ -1195,8 +1263,9 @@ export class LaporanService {
       StatusLaporan.FINAL,
     );
 
-    await this.cacheService.del(
-      this.getCacheKey('keuangan', laporan.periodeBulan, laporan.periodeTahun),
+    await this.invalidateKeuanganSnapshotCache(
+      laporan.periodeBulan,
+      laporan.periodeTahun,
     );
 
     return {

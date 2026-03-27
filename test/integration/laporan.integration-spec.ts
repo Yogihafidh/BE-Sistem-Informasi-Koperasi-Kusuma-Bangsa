@@ -48,11 +48,11 @@ describe('Laporan Module (Integration)', () => {
     await closeTestApp(app);
   });
 
-  describe('GET /api/laporan/bulanan', () => {
+  describe('GET /api/rekapitulasi/bulanan', () => {
     it('should get laporan bulanan', async () => {
       const res = await authGet(
         app,
-        `/api/laporan/bulanan?bulan=${bulan}&tahun=${tahun}`,
+        `/api/rekapitulasi/bulanan?bulan=${bulan}&tahun=${tahun}`,
         adminToken,
       ).expect(200);
 
@@ -60,11 +60,11 @@ describe('Laporan Module (Integration)', () => {
     });
   });
 
-  describe('GET /api/laporan/transaksi', () => {
+  describe('GET /api/rekapitulasi/transaksi', () => {
     it('should get laporan transaksi', async () => {
       const res = await authGet(
         app,
-        `/api/laporan/transaksi?bulan=${bulan}&tahun=${tahun}`,
+        `/api/rekapitulasi/transaksi?bulan=${bulan}&tahun=${tahun}`,
         adminToken,
       ).expect(200);
 
@@ -72,11 +72,11 @@ describe('Laporan Module (Integration)', () => {
     });
   });
 
-  describe('GET /api/laporan/simpanan', () => {
+  describe('GET /api/rekapitulasi/simpanan', () => {
     it('should get laporan simpanan', async () => {
       const res = await authGet(
         app,
-        `/api/laporan/simpanan?bulan=${bulan}&tahun=${tahun}`,
+        `/api/rekapitulasi/simpanan?bulan=${bulan}&tahun=${tahun}`,
         adminToken,
       ).expect(200);
 
@@ -84,11 +84,11 @@ describe('Laporan Module (Integration)', () => {
     });
   });
 
-  describe('GET /api/laporan/pinjaman', () => {
+  describe('GET /api/rekapitulasi/pinjaman', () => {
     it('should get laporan pinjaman', async () => {
       const res = await authGet(
         app,
-        `/api/laporan/pinjaman?bulan=${bulan}&tahun=${tahun}`,
+        `/api/rekapitulasi/pinjaman?bulan=${bulan}&tahun=${tahun}`,
         adminToken,
       ).expect(200);
 
@@ -96,11 +96,11 @@ describe('Laporan Module (Integration)', () => {
     });
   });
 
-  describe('GET /api/laporan/angsuran', () => {
+  describe('GET /api/rekapitulasi/angsuran', () => {
     it('should get laporan angsuran', async () => {
       const res = await authGet(
         app,
-        `/api/laporan/angsuran?bulan=${bulan}&tahun=${tahun}`,
+        `/api/rekapitulasi/angsuran?bulan=${bulan}&tahun=${tahun}`,
         adminToken,
       ).expect(200);
 
@@ -108,11 +108,11 @@ describe('Laporan Module (Integration)', () => {
     });
   });
 
-  describe('GET /api/laporan/penarikan', () => {
+  describe('GET /api/rekapitulasi/penarikan', () => {
     it('should get laporan penarikan', async () => {
       const res = await authGet(
         app,
-        `/api/laporan/penarikan?bulan=${bulan}&tahun=${tahun}`,
+        `/api/rekapitulasi/penarikan?bulan=${bulan}&tahun=${tahun}`,
         adminToken,
       ).expect(200);
 
@@ -120,11 +120,11 @@ describe('Laporan Module (Integration)', () => {
     });
   });
 
-  describe('GET /api/laporan/cashflow', () => {
+  describe('GET /api/rekapitulasi/cashflow', () => {
     it('should get laporan cashflow', async () => {
       const res = await authGet(
         app,
-        `/api/laporan/cashflow?bulan=${bulan}&tahun=${tahun}`,
+        `/api/rekapitulasi/cashflow?bulan=${bulan}&tahun=${tahun}`,
         adminToken,
       ).expect(200);
 
@@ -132,11 +132,11 @@ describe('Laporan Module (Integration)', () => {
     });
   });
 
-  describe('GET /api/laporan/anggota', () => {
+  describe('GET /api/rekapitulasi/anggota', () => {
     it('should get laporan anggota', async () => {
       const res = await authGet(
         app,
-        `/api/laporan/anggota?bulan=${bulan}&tahun=${tahun}`,
+        `/api/rekapitulasi/anggota?bulan=${bulan}&tahun=${tahun}`,
         adminToken,
       ).expect(200);
 
@@ -198,6 +198,14 @@ describe('Laporan Module (Integration)', () => {
       ).expect(201);
 
       expect(res.body.data).toHaveProperty('statusLaporan', 'FINAL');
+
+      const latestRes = await authGet(
+        app,
+        `/api/laporan/keuangan?bulan=${bulan}&tahun=${tahun}`,
+        adminToken,
+      ).expect(200);
+
+      expect(latestRes.body.statusLaporan).toBe('FINAL');
     });
   });
 
@@ -211,7 +219,7 @@ describe('Laporan Module (Integration)', () => {
 
       await authGet(
         app,
-        `/api/laporan/bulanan?bulan=${bulan}&tahun=${tahun}`,
+        `/api/rekapitulasi/bulanan?bulan=${bulan}&tahun=${tahun}`,
         user.accessToken,
       ).expect(403);
     });
