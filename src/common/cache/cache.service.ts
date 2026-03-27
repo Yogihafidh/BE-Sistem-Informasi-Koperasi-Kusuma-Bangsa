@@ -64,12 +64,27 @@ export class CacheService {
     await this.setJson(registryKey, keys, ttlSeconds);
   }
 
+  async getRegisteredKeys(registryKey: string) {
+    return this.getKeyRegistry(registryKey);
+  }
+
   async clearRegisteredKeys(registryKey: string, ttlSeconds?: number) {
     const keys = await this.getKeyRegistry(registryKey);
+    const failedKeys: string[] = [];
+
     for (const key of keys) {
-      await this.del(key);
+      try {
+        await this.del(key);
+      } catch {
+        failedKeys.push(key);
+      }
     }
 
-    await this.setJson<string[]>(registryKey, [], ttlSeconds);
+    await this.setJson<string[]>(registryKey, failedKeys, ttlSeconds);
+
+    return {
+      deletedCount: keys.length - failedKeys.length,
+      failedKeys,
+    };
   }
 }

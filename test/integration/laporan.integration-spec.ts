@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { CacheService } from '../../src/common/cache/cache.service';
 import {
   createTestApp,
   cleanupDatabase,
@@ -17,27 +18,34 @@ import { createFullNasabah } from '../helpers/factory.helper';
 describe('Laporan Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
+  let cacheService: CacheService;
+  let sukarelaRekeningId: number;
+
+  const noAdminPassword = ['No', 'Admin', '123', '!'].join('');
+  const snapshotVersionKey = 'laporan:keuangan:snapshot:version';
 
   const bulan = new Date().getMonth() + 1;
   const tahun = new Date().getFullYear();
 
   beforeAll(async () => {
     app = await createTestApp();
+    cacheService = app.get(CacheService);
     await cleanupDatabase(getPrisma());
     await seedDatabase(getPrisma());
     const tokens = await loginAsAdmin(app);
     adminToken = tokens.accessToken;
 
     // Create some data for reports
-    const { nasabah, rekeningList } = await createFullNasabah(app, adminToken);
+    const { rekeningList } = await createFullNasabah(app, adminToken);
     const sukarela = rekeningList.find(
       (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'SUKARELA',
     )!;
+    sukarelaRekeningId = sukarela.id;
 
     // Create a setoran so reports have data
     await authPost(
       app,
-      `/api/simpanan/rekening/${sukarela.id}/setoran`,
+      `/api/simpanan/rekening/${sukarelaRekeningId}/setoran`,
       adminToken,
     )
       .send({ nominal: 1000000, metodePembayaran: 'CASH' })
@@ -146,8 +154,14 @@ describe('Laporan Module (Integration)', () => {
 
   describe('Laporan Keuangan flow', () => {
     let laporanKeuanganId: number;
+    let snapshotVersionAfterGenerate = 0;
 
     it('should generate laporan keuangan', async () => {
+      const versionBeforeGenerate = Number.parseInt(
+        (await cacheService.getString(snapshotVersionKey)) ?? '0',
+        10,
+      );
+
       const res = await authPost(
         app,
         `/api/laporan/keuangan/generate?bulan=${bulan}&tahun=${tahun}`,
@@ -156,6 +170,14 @@ describe('Laporan Module (Integration)', () => {
 
       expect(res.body.data).toHaveProperty('id');
       laporanKeuanganId = res.body.data.id;
+
+      snapshotVersionAfterGenerate = Number.parseInt(
+        (await cacheService.getString(snapshotVersionKey)) ?? '0',
+        10,
+      );
+      expect(snapshotVersionAfterGenerate).toBeGreaterThanOrEqual(
+        versionBeforeGenerate + 1,
+      );
     });
 
     it('should get laporan keuangan', async () => {
@@ -188,8 +210,58 @@ describe('Laporan Module (Integration)', () => {
       expect(res.body.periodeTahun).toBe(tahun);
     });
 
+    it('should refresh snapshot value after financial mutation and regenerate', async () => {
+      const before = await authGet(
+        app,
+        `/api/laporan/keuangan?bulan=${bulan}&tahun=${tahun}`,
+        adminToken,
+      ).expect(200);
+
+      const versionBeforeRegenerate = Number.parseInt(
+        (await cacheService.getString(snapshotVersionKey)) ?? '0',
+        10,
+      );
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${sukarelaRekeningId}/setoran`,
+        adminToken,
+      )
+        .send({ nominal: 333333, metodePembayaran: 'CASH' })
+        .expect(201);
+
+      await authPost(
+        app,
+        `/api/laporan/keuangan/generate?bulan=${bulan}&tahun=${tahun}`,
+        adminToken,
+      ).expect(201);
+
+      const after = await authGet(
+        app,
+        `/api/laporan/keuangan?bulan=${bulan}&tahun=${tahun}`,
+        adminToken,
+      ).expect(200);
+
+      expect(after.body.totalSimpanan).toBeGreaterThan(
+        before.body.totalSimpanan,
+      );
+
+      const versionAfterRegenerate = Number.parseInt(
+        (await cacheService.getString(snapshotVersionKey)) ?? '0',
+        10,
+      );
+      expect(versionAfterRegenerate).toBeGreaterThanOrEqual(
+        versionBeforeRegenerate + 1,
+      );
+    });
+
     it('should finalize laporan keuangan', async () => {
       if (!laporanKeuanganId) return;
+
+      const versionBeforeFinalize = Number.parseInt(
+        (await cacheService.getString(snapshotVersionKey)) ?? '0',
+        10,
+      );
 
       const res = await authPost(
         app,
@@ -206,6 +278,14 @@ describe('Laporan Module (Integration)', () => {
       ).expect(200);
 
       expect(latestRes.body.statusLaporan).toBe('FINAL');
+
+      const versionAfterFinalize = Number.parseInt(
+        (await cacheService.getString(snapshotVersionKey)) ?? '0',
+        10,
+      );
+      expect(versionAfterFinalize).toBeGreaterThanOrEqual(
+        versionBeforeFinalize + 1,
+      );
     });
   });
 
@@ -214,7 +294,7 @@ describe('Laporan Module (Integration)', () => {
       const user = await registerAndLogin(app, {
         username: 'laporannonadmin',
         email: 'laporannonadmin@test.com',
-        password: 'NoAdmin123!',
+        password: noAdminPassword,
       });
 
       await authGet(

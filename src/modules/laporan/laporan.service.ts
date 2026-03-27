@@ -26,6 +26,7 @@ export class LaporanService {
     REKAPITULASI_PREFIX: 'laporan',
     KEUANGAN_SNAPSHOT_PREFIX: 'laporan:keuangan:snapshot',
     KEUANGAN_LATEST: 'laporan:keuangan:latest',
+    KEUANGAN_SNAPSHOT_VERSION: 'laporan:keuangan:snapshot:version',
     // Backward compatibility for older key shape before snapshot refactor.
     KEUANGAN_LEGACY_PREFIX: 'laporan:keuangan',
   } as const;
@@ -54,6 +55,34 @@ export class LaporanService {
     return LaporanService.CACHE_KEY.KEUANGAN_LATEST;
   }
 
+  private getVersionedKeuanganSnapshotKey(
+    baseKey: string,
+    version: number,
+  ): string {
+    return `${baseKey}:v:${version}`;
+  }
+
+  private async getKeuanganSnapshotVersion() {
+    const rawVersion = await this.cacheService.getString(
+      LaporanService.CACHE_KEY.KEUANGAN_SNAPSHOT_VERSION,
+    );
+    const parsedVersion = Number.parseInt(rawVersion ?? '0', 10);
+
+    if (!Number.isFinite(parsedVersion) || parsedVersion < 0) {
+      return 0;
+    }
+
+    return parsedVersion;
+  }
+
+  private async bumpKeuanganSnapshotVersion() {
+    const currentVersion = await this.getKeuanganSnapshotVersion();
+    await this.cacheService.setString(
+      LaporanService.CACHE_KEY.KEUANGAN_SNAPSHOT_VERSION,
+      String(currentVersion + 1),
+    );
+  }
+
   private getLegacyKeuanganKey(bulan: number, tahun: number) {
     return `${LaporanService.CACHE_KEY.KEUANGAN_LEGACY_PREFIX}:${tahun}:${bulan}`;
   }
@@ -69,6 +98,8 @@ export class LaporanService {
       await this.cacheService.del(key);
       this.logger.log(`Cache invalidated: ${key}`);
     }
+
+    await this.bumpKeuanganSnapshotVersion();
   }
 
   private async invalidateDashboardBecauseSnapshotUpdated(source: string) {
@@ -1239,37 +1270,64 @@ export class LaporanService {
       );
     }
 
-    const cacheKey =
+    const baseCacheKey =
       bulan !== undefined && tahun !== undefined
         ? this.getKeuanganSnapshotKey(bulan, tahun)
         : this.getKeuanganLatestKey();
 
-    return this.cacheResponse(cacheKey, async () => {
-      let laporanRaw: unknown = null;
-      if (bulan !== undefined && tahun !== undefined) {
-        laporanRaw = await this.laporanRepository.findLaporanKeuanganByPeriode(
-          bulan,
-          tahun,
-        );
-      } else {
-        const repository = this.laporanRepository as {
-          findLatestLaporanKeuanganSnapshot: () => Promise<LaporanKeuangan | null>;
-        };
-        laporanRaw = await repository.findLatestLaporanKeuanganSnapshot();
-      }
+    const snapshotVersion = await this.getKeuanganSnapshotVersion();
+    const cacheKey = this.getVersionedKeuanganSnapshotKey(
+      baseCacheKey,
+      snapshotVersion,
+    );
 
-      if (laporanRaw === null) {
-        throw new NotFoundException('Laporan keuangan tidak ditemukan');
-      }
+    const cached =
+      await this.cacheService.getJson<Record<string, unknown>>(cacheKey);
+    if (cached) {
+      return cached as ReturnType<LaporanService['mapLaporanKeuanganSnapshot']>;
+    }
 
-      if (!this.isLaporanKeuanganRecord(laporanRaw)) {
-        throw new BadRequestException('Data laporan keuangan tidak valid');
-      }
+    let laporanRaw: unknown = null;
+    if (bulan !== undefined && tahun !== undefined) {
+      laporanRaw = await this.laporanRepository.findLaporanKeuanganByPeriode(
+        bulan,
+        tahun,
+      );
+    } else {
+      const repository = this.laporanRepository as {
+        findLatestLaporanKeuanganSnapshot: () => Promise<LaporanKeuangan | null>;
+      };
+      laporanRaw = await repository.findLatestLaporanKeuanganSnapshot();
+    }
 
-      const laporan = laporanRaw;
+    if (laporanRaw === null) {
+      throw new NotFoundException('Laporan keuangan tidak ditemukan');
+    }
 
-      return this.mapLaporanKeuanganSnapshot(laporan);
-    });
+    if (!this.isLaporanKeuanganRecord(laporanRaw)) {
+      throw new BadRequestException('Data laporan keuangan tidak valid');
+    }
+
+    const response = this.mapLaporanKeuanganSnapshot(laporanRaw);
+    const latestSnapshotVersion = await this.getKeuanganSnapshotVersion();
+    if (latestSnapshotVersion === snapshotVersion) {
+      await this.cacheService.setJson(
+        cacheKey,
+        response,
+        this.getCacheTtlSeconds(),
+      );
+    } else {
+      this.logger.warn({
+        event: 'laporan.snapshot.cache.write.skipped',
+        reason: 'version_changed',
+        key: cacheKey,
+        expectedVersion: snapshotVersion,
+        latestVersion: latestSnapshotVersion,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return response;
   }
 
   async finalizeLaporanKeuangan(id: number) {

@@ -13,6 +13,9 @@ import { CacheService } from '../../common/cache/cache.service';
 
 const DASHBOARD_KEYS_REGISTRY = 'dashboard:keys';
 const DASHBOARD_REGISTRY_TTL_SECONDS = 60 * 60 * 24;
+const DASHBOARD_INVALIDATION_VERSION_KEY = 'dashboard:invalidation:version';
+const DASHBOARD_INVALIDATION_RETRY_ATTEMPTS = 3;
+const DASHBOARD_INVALIDATION_RETRY_DELAY_MS = 100;
 
 @Injectable()
 export class DashboardService {
@@ -77,17 +80,121 @@ export class DashboardService {
     return `${DashboardService.CACHE_KEY.PREFIX}:${tahun}:${bulan}`;
   }
 
+  private getVersionedCacheKey(bulan: number, tahun: number, version: number) {
+    return `${this.getCacheKey(bulan, tahun)}:v:${version}`;
+  }
+
+  private async getInvalidationVersion() {
+    const rawVersion = await this.cacheService.getString(
+      DASHBOARD_INVALIDATION_VERSION_KEY,
+    );
+    const parsedVersion = Number.parseInt(rawVersion ?? '0', 10);
+    if (!Number.isFinite(parsedVersion) || parsedVersion < 0) {
+      return 0;
+    }
+
+    return parsedVersion;
+  }
+
+  private async bumpInvalidationVersion() {
+    const currentVersion = await this.getInvalidationVersion();
+    await this.cacheService.setString(
+      DASHBOARD_INVALIDATION_VERSION_KEY,
+      String(currentVersion + 1),
+    );
+  }
+
   private getCacheTtlSeconds() {
     return (
       this.configService.get<number>('app.cacheTtlDashboardSeconds') ?? 600
     );
   }
 
-  async clearDashboardCache(): Promise<void> {
-    await this.cacheService.clearRegisteredKeys(
-      DASHBOARD_KEYS_REGISTRY,
-      DASHBOARD_REGISTRY_TTL_SECONDS,
+  private wait(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async runWithRetry<T>(
+    taskName: string,
+    source: string,
+    runner: () => Promise<T>,
+    attempts = DASHBOARD_INVALIDATION_RETRY_ATTEMPTS,
+  ) {
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const result = await runner();
+        if (attempt > 1) {
+          this.logger.log({
+            event: 'dashboard.invalidate.retry.succeeded',
+            source,
+            taskName,
+            attempt,
+            attempts,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        return result;
+      } catch (error) {
+        lastError = error;
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.warn({
+          event: 'dashboard.invalidate.retry.failed',
+          source,
+          taskName,
+          attempt,
+          attempts,
+          timestamp: new Date().toISOString(),
+          error: errorMessage,
+        });
+
+        if (attempt < attempts) {
+          await this.wait(DASHBOARD_INVALIDATION_RETRY_DELAY_MS * attempt);
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  async clearDashboardCache(source = 'unknown'): Promise<void> {
+    const clearResult = await this.runWithRetry(
+      'clearRegisteredKeys',
+      source,
+      () =>
+        this.cacheService.clearRegisteredKeys(
+          DASHBOARD_KEYS_REGISTRY,
+          DASHBOARD_REGISTRY_TTL_SECONDS,
+        ),
     );
+
+    await this.runWithRetry('bumpInvalidationVersion', source, () =>
+      this.bumpInvalidationVersion(),
+    );
+
+    const keysAfterClear = await this.cacheService.getRegisteredKeys(
+      DASHBOARD_KEYS_REGISTRY,
+    );
+
+    if (keysAfterClear.length > 0) {
+      this.logger.warn({
+        event: 'dashboard.registry.drift.detected',
+        source,
+        timestamp: new Date().toISOString(),
+        remainingKeyCount: keysAfterClear.length,
+      });
+    }
+
+    this.logger.log({
+      event: 'dashboard.registry.clear.summary',
+      source,
+      timestamp: new Date().toISOString(),
+      deletedCount: clearResult.deletedCount,
+      failedKeyCount: clearResult.failedKeys.length,
+    });
   }
 
   async invalidateDashboardBecauseFinancialChanged(
@@ -95,7 +202,7 @@ export class DashboardService {
   ): Promise<void> {
     const timestamp = new Date().toISOString();
     try {
-      await this.clearDashboardCache();
+      await this.clearDashboardCache(source);
       this.logger.log({
         event: 'dashboard.invalidate',
         source,
@@ -114,9 +221,15 @@ export class DashboardService {
   }
 
   async getDashboard(bulan: number, tahun: number) {
-    const cached = await this.cacheService.getJson<Record<string, unknown>>(
-      this.getCacheKey(bulan, tahun),
+    const invalidationVersion = await this.getInvalidationVersion();
+    const cacheKey = this.getVersionedCacheKey(
+      bulan,
+      tahun,
+      invalidationVersion,
     );
+
+    const cached =
+      await this.cacheService.getJson<Record<string, unknown>>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -127,8 +240,6 @@ export class DashboardService {
     const trendMonths = Math.max(1, Math.floor(trendMonthsSetting));
 
     const { start, end } = this.getMonthRange(bulan, tahun);
-    const snapshot =
-      await this.dashboardRepository.findLaporanKeuanganByPeriode(bulan, tahun);
 
     const [
       totalSimpananAgg,
@@ -172,15 +283,9 @@ export class DashboardService {
       totalOutstandingAgg._sum.sisaPinjaman,
     );
 
-    const totalSetoran = snapshot
-      ? this.toNumber(snapshot.totalSimpanan)
-      : this.toNumber(setoranAgg._sum.nominal);
-    const totalPenarikan = snapshot
-      ? this.toNumber(snapshot.totalPenarikan)
-      : this.toNumber(penarikanAgg._sum.nominal);
-    const angsuranBulanIni = snapshot
-      ? this.toNumber(snapshot.totalAngsuran)
-      : this.toNumber(angsuranAgg._sum.nominal);
+    const totalSetoran = this.toNumber(setoranAgg._sum.nominal);
+    const totalPenarikan = this.toNumber(penarikanAgg._sum.nominal);
+    const angsuranBulanIni = this.toNumber(angsuranAgg._sum.nominal);
 
     const prevTotalSimpanan = totalSimpanan - (totalSetoran - totalPenarikan);
     const growthSimpanan = this.calculateGrowth(
@@ -289,15 +394,38 @@ export class DashboardService {
     };
 
     await this.cacheService.setJson(
-      this.getCacheKey(bulan, tahun),
+      cacheKey,
       response,
       this.getCacheTtlSeconds(),
     );
-    await this.cacheService.registerKey(
-      DASHBOARD_KEYS_REGISTRY,
-      this.getCacheKey(bulan, tahun),
-      DASHBOARD_REGISTRY_TTL_SECONDS,
+
+    await this.runWithRetry('registerKey', 'dashboard:get', () =>
+      this.cacheService.registerKey(
+        DASHBOARD_KEYS_REGISTRY,
+        cacheKey,
+        DASHBOARD_REGISTRY_TTL_SECONDS,
+      ),
     );
+
+    const registryKeys = await this.cacheService.getRegisteredKeys(
+      DASHBOARD_KEYS_REGISTRY,
+    );
+    if (!registryKeys.includes(cacheKey)) {
+      this.logger.warn({
+        event: 'dashboard.registry.drift.detected',
+        source: 'dashboard:get',
+        timestamp: new Date().toISOString(),
+        missingKey: cacheKey,
+      });
+
+      await this.runWithRetry('registerKey.reconcile', 'dashboard:get', () =>
+        this.cacheService.registerKey(
+          DASHBOARD_KEYS_REGISTRY,
+          cacheKey,
+          DASHBOARD_REGISTRY_TTL_SECONDS,
+        ),
+      );
+    }
 
     return response;
   }

@@ -249,6 +249,10 @@ export class NasabahService {
       return created;
     });
 
+    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
+      'nasabah:create',
+    );
+
     return {
       message: 'Registrasi nasabah berhasil',
       data: nasabah,
