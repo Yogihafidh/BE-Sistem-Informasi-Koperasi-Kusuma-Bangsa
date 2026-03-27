@@ -54,26 +54,22 @@ export class CacheService {
     await this.cacheManager.del(key);
   }
 
-  async registerKey(registryKey: string, key: string) {
+  async registerKey(registryKey: string, key: string, ttlSeconds?: number) {
     const keys = await this.getKeyRegistry(registryKey);
     if (keys.includes(key)) {
       return;
     }
 
     keys.push(key);
-    await this.setJson(registryKey, keys);
+    await this.setJson(registryKey, keys, ttlSeconds);
   }
 
-  async clearRegisteredKeys(registryKey: string) {
+  async clearRegisteredKeys(registryKey: string, ttlSeconds?: number) {
     const keys = await this.getKeyRegistry(registryKey);
-    if (keys.length === 0) {
-      return;
-    }
-
     for (const key of keys) {
       await this.del(key);
     }
 
-    await this.del(registryKey);
+    await this.setJson<string[]>(registryKey, [], ttlSeconds);
   }
 }

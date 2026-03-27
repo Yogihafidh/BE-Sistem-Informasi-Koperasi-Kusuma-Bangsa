@@ -11,11 +11,13 @@ import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
 import { CacheService } from '../../common/cache/cache.service';
 
+const DASHBOARD_KEYS_REGISTRY = 'dashboard:keys';
+const DASHBOARD_REGISTRY_TTL_SECONDS = 60 * 60 * 24;
+
 @Injectable()
 export class DashboardService {
   private static readonly CACHE_KEY = {
     PREFIX: 'dashboard',
-    REGISTRY: 'dashboard:keys',
   } as const;
 
   private readonly logger = new Logger(DashboardService.name);
@@ -83,7 +85,8 @@ export class DashboardService {
 
   async clearDashboardCache(): Promise<void> {
     await this.cacheService.clearRegisteredKeys(
-      DashboardService.CACHE_KEY.REGISTRY,
+      DASHBOARD_KEYS_REGISTRY,
+      DASHBOARD_REGISTRY_TTL_SECONDS,
     );
   }
 
@@ -291,8 +294,9 @@ export class DashboardService {
       this.getCacheTtlSeconds(),
     );
     await this.cacheService.registerKey(
-      DashboardService.CACHE_KEY.REGISTRY,
+      DASHBOARD_KEYS_REGISTRY,
       this.getCacheKey(bulan, tahun),
+      DASHBOARD_REGISTRY_TTL_SECONDS,
     );
 
     return response;

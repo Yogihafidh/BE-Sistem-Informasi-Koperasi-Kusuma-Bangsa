@@ -356,7 +356,9 @@ export async function closeTestApp(app: INestApplication): Promise<void> {
   }
 
   if (cacheClient) {
-    const disconnect = (cacheClient as unknown as { disconnect?: () => Promise<void> }).disconnect;
+    const disconnect = (
+      cacheClient as unknown as { disconnect?: () => Promise<void> }
+    ).disconnect;
     if (disconnect) {
       await disconnect.call(cacheClient);
     }

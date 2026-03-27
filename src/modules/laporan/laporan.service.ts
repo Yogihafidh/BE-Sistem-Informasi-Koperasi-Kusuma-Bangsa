@@ -71,6 +71,21 @@ export class LaporanService {
     }
   }
 
+  private async invalidateDashboardBecauseSnapshotUpdated(source: string) {
+    try {
+      await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
+        source,
+      );
+      this.logger.log('Dashboard invalidated due to snapshot update');
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Failed to invalidate dashboard due to snapshot update: ${errorMessage}`,
+      );
+    }
+  }
+
   private getCacheTtlSeconds() {
     return this.configService.get<number>('app.cacheTtlLaporanSeconds') ?? 900;
   }
@@ -1162,9 +1177,7 @@ export class LaporanService {
         });
 
     await this.invalidateKeuanganSnapshotCache(bulan, tahun);
-    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
-      'laporan:generate',
-    );
+    await this.invalidateDashboardBecauseSnapshotUpdated('laporan:generate');
 
     return {
       message: 'Laporan keuangan berhasil di-generate',
@@ -1278,9 +1291,7 @@ export class LaporanService {
       laporan.periodeBulan,
       laporan.periodeTahun,
     );
-    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
-      'laporan:finalize',
-    );
+    await this.invalidateDashboardBecauseSnapshotUpdated('laporan:finalize');
 
     return {
       message: 'Laporan keuangan berhasil difinalisasi',

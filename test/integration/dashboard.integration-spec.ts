@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { CacheService } from '../../src/common/cache/cache.service';
 import {
   createTestApp,
   cleanupDatabase,
@@ -23,13 +24,16 @@ import {
 describe('Dashboard Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
+  let cacheService: CacheService;
   const noAccessPassword = ['No', 'Access', '123', '!'].join('');
+  const dashboardRegistryKey = 'dashboard:keys';
 
   const bulan = new Date().getMonth() + 1;
   const tahun = new Date().getFullYear();
 
   beforeAll(async () => {
     app = await createTestApp();
+    cacheService = app.get(CacheService);
     await cleanupDatabase(getPrisma());
     await seedDatabase(getPrisma());
     const tokens = await loginAsAdmin(app);
@@ -56,6 +60,11 @@ describe('Dashboard Module (Integration)', () => {
         anggotaAktif: number;
       };
     };
+  }
+
+  async function getDashboardRegistryKeys() {
+    const keys = await cacheService.getJson<string[]>(dashboardRegistryKey);
+    return Array.isArray(keys) ? keys : [];
   }
 
   describe('GET /api/dashboard', () => {
@@ -107,6 +116,27 @@ describe('Dashboard Module (Integration)', () => {
   });
 
   describe('Dashboard Cache Anti-Stale Guards', () => {
+    it('should reset dashboard registry keys after invalidation', async () => {
+      await getDashboardData();
+
+      const keysBeforeInvalidation = await getDashboardRegistryKeys();
+      expect(keysBeforeInvalidation.length).toBeGreaterThan(0);
+      expect(keysBeforeInvalidation).toContain(`dashboard:${tahun}:${bulan}`);
+
+      const nasabah = await createTestNasabah(app, adminToken);
+      await authPatch(app, `/api/nasabah/${nasabah.id}/verifikasi`, adminToken)
+        .send({ status: 'AKTIF', catatan: 'Registry reset assertion' })
+        .expect(200);
+
+      const keysAfterInvalidation = await getDashboardRegistryKeys();
+      expect(keysAfterInvalidation).toEqual([]);
+
+      await getDashboardData();
+
+      const keysAfterRebuild = await getDashboardRegistryKeys();
+      expect(keysAfterRebuild).toContain(`dashboard:${tahun}:${bulan}`);
+    });
+
     it('should refresh dashboard after creating transaksi', async () => {
       const { rekeningList } = await createFullNasabah(app, adminToken);
       const sukarela = rekeningList.find(
