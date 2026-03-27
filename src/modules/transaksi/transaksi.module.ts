@@ -4,9 +4,12 @@ import { TransaksiController } from './transaksi.controller';
 import { TransaksiRelationsController } from './transaksi.relations.controller';
 import { TransaksiService } from './transaksi.service';
 import { TransaksiRepository } from './transaksi.repository';
+import { DashboardModule } from '../dashboard/dashboard.module';
 
 @Module({
+  imports: [DashboardModule],
   controllers: [TransaksiController, TransaksiRelationsController],
   providers: [TransaksiService, TransaksiRepository, PrismaClient],
+  exports: [TransaksiService],
 })
 export class TransaksiModule {}

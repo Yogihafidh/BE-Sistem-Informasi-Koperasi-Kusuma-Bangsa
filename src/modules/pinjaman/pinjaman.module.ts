@@ -4,17 +4,16 @@ import { PinjamanController } from './pinjaman.controller';
 import { PinjamanService } from './pinjaman.service';
 import { PinjamanRepository } from './pinjaman.repository';
 import { TransaksiRepository } from '../transaksi/transaksi.repository';
-import { TransaksiService } from '../transaksi/transaksi.service';
+import { TransaksiModule } from '../transaksi/transaksi.module';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, TransaksiModule],
   controllers: [PinjamanController],
   providers: [
     PinjamanService,
     PinjamanRepository,
     TransaksiRepository,
-    TransaksiService,
     PrismaClient,
   ],
 })

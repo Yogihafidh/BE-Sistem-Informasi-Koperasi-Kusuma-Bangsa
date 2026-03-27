@@ -4,15 +4,15 @@ import { SimpananController } from './simpanan.controller';
 import { SimpananService } from './simpanan.service';
 import { SimpananRepository } from './simpanan.repository';
 import { TransaksiRepository } from '../transaksi/transaksi.repository';
-import { TransaksiService } from '../transaksi/transaksi.service';
+import { TransaksiModule } from '../transaksi/transaksi.module';
 
 @Module({
+  imports: [TransaksiModule],
   controllers: [SimpananController],
   providers: [
     SimpananService,
     SimpananRepository,
     TransaksiRepository,
-    TransaksiService,
     PrismaClient,
   ],
 })

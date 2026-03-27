@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   JenisSimpanan,
@@ -13,6 +13,13 @@ import { CacheService } from '../../common/cache/cache.service';
 
 @Injectable()
 export class DashboardService {
+  private static readonly CACHE_KEY = {
+    PREFIX: 'dashboard',
+    REGISTRY: 'dashboard:keys',
+  } as const;
+
+  private readonly logger = new Logger(DashboardService.name);
+
   constructor(
     private readonly dashboardRepository: DashboardRepository,
     private readonly settingsService: SettingsService,
@@ -65,13 +72,20 @@ export class DashboardService {
   }
 
   private getCacheKey(bulan: number, tahun: number) {
-    return `dashboard:${tahun}:${bulan}`;
+    return `${DashboardService.CACHE_KEY.PREFIX}:${tahun}:${bulan}`;
   }
 
   private getCacheTtlSeconds() {
     return (
       this.configService.get<number>('app.cacheTtlDashboardSeconds') ?? 600
     );
+  }
+
+  async clearDashboardCache(): Promise<void> {
+    await this.cacheService.clearRegisteredKeys(
+      DashboardService.CACHE_KEY.REGISTRY,
+    );
+    this.logger.log('Dashboard cache invalidated');
   }
 
   async getDashboard(bulan: number, tahun: number) {
@@ -253,6 +267,10 @@ export class DashboardService {
       this.getCacheKey(bulan, tahun),
       response,
       this.getCacheTtlSeconds(),
+    );
+    await this.cacheService.registerKey(
+      DashboardService.CACHE_KEY.REGISTRY,
+      this.getCacheKey(bulan, tahun),
     );
 
     return response;

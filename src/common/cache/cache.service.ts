@@ -5,6 +5,15 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 export class CacheService {
   constructor(@Inject(CACHE_MANAGER) private readonly cacheManager: any) {}
 
+  private async getKeyRegistry(registryKey: string): Promise<string[]> {
+    const cached = await this.getJson<unknown>(registryKey);
+    if (!Array.isArray(cached)) {
+      return [];
+    }
+
+    return cached.filter((item): item is string => typeof item === 'string');
+  }
+
   async getJson<T>(key: string): Promise<T | null> {
     const cached = await this.cacheManager.get(key);
     if (cached === null || cached === undefined) {
@@ -43,5 +52,28 @@ export class CacheService {
 
   async del(key: string) {
     await this.cacheManager.del(key);
+  }
+
+  async registerKey(registryKey: string, key: string) {
+    const keys = await this.getKeyRegistry(registryKey);
+    if (keys.includes(key)) {
+      return;
+    }
+
+    keys.push(key);
+    await this.setJson(registryKey, keys);
+  }
+
+  async clearRegisteredKeys(registryKey: string) {
+    const keys = await this.getKeyRegistry(registryKey);
+    if (keys.length === 0) {
+      return;
+    }
+
+    for (const key of keys) {
+      await this.del(key);
+    }
+
+    await this.del(registryKey);
   }
 }
