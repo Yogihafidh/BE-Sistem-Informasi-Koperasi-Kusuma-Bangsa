@@ -106,9 +106,16 @@ export class NasabahRepository {
     });
   }
 
-  async findAllNasabah(cursor: number | undefined, take: number) {
+  async findAllNasabah(
+    cursor: number | undefined,
+    take: number,
+    status?: NasabahStatus,
+  ) {
     const data = await this.prisma.nasabah.findMany({
-      where: { deletedAt: null },
+      where: {
+        deletedAt: null,
+        ...(status ? { status } : {}),
+      },
       select: nasabahListSelect,
       orderBy: { id: 'desc' },
       take: take + 1,

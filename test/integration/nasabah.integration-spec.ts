@@ -128,6 +128,21 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.data.length).toBeGreaterThanOrEqual(1);
       expect(res.body.pagination).toBeDefined();
     });
+
+    it('should filter nasabah by status PENDING', async () => {
+      const res = await authGet(
+        app,
+        '/api/nasabah?status=PENDING',
+        adminToken,
+      ).expect(200);
+
+      expect(res.body.data).toBeInstanceOf(Array);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+
+      for (const nasabah of res.body.data) {
+        expect(nasabah.status).toBe('PENDING');
+      }
+    });
   });
 
   describe('GET /api/nasabah/:id', () => {
@@ -283,5 +298,4 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.data.status).toBe('AKTIF');
     });
   });
-
 });

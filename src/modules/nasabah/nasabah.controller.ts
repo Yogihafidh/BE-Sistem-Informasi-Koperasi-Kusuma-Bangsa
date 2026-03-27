@@ -28,7 +28,7 @@ import {
   FileFieldsInterceptor,
   FileInterceptor,
 } from '@nestjs/platform-express';
-import { JenisDokumen } from '@prisma/client';
+import { JenisDokumen, NasabahStatus } from '@prisma/client';
 import { NasabahService } from './nasabah.service';
 import {
   CreateNasabahDto,
@@ -98,6 +98,12 @@ export class NasabahController {
     description:
       'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
   })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: NasabahStatus,
+    description: 'Filter status nasabah (contoh: PENDING, AKTIF, DITOLAK)',
+  })
   @ApiResponse({
     status: 200,
     description: 'Daftar nasabah berhasil diambil',
@@ -130,8 +136,10 @@ export class NasabahController {
   @ApiAuthErrors()
   getAllNasabah(
     @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
+    @Query('status', new ParseEnumPipe(NasabahStatus, { optional: true }))
+    status?: NasabahStatus,
   ) {
-    return this.nasabahService.getAllNasabah(cursor);
+    return this.nasabahService.getAllNasabah(cursor, status);
   }
 
   @Get(':id')

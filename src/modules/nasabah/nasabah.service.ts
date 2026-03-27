@@ -253,10 +253,11 @@ export class NasabahService {
     };
   }
 
-  async getAllNasabah(cursor?: number) {
+  async getAllNasabah(cursor?: number, status?: NasabahStatus) {
     const { data, nextCursor } = await this.nasabahRepository.findAllNasabah(
       cursor,
       DEFAULT_PAGE_SIZE,
+      status,
     );
 
     return {
