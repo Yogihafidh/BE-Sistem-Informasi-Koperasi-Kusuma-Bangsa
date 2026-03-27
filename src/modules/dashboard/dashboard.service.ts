@@ -85,7 +85,29 @@ export class DashboardService {
     await this.cacheService.clearRegisteredKeys(
       DashboardService.CACHE_KEY.REGISTRY,
     );
-    this.logger.log('Dashboard cache invalidated');
+  }
+
+  async invalidateDashboardBecauseFinancialChanged(
+    source = 'unknown',
+  ): Promise<void> {
+    const timestamp = new Date().toISOString();
+    try {
+      await this.clearDashboardCache();
+      this.logger.log({
+        event: 'dashboard.invalidate',
+        source,
+        timestamp,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.warn({
+        event: 'dashboard.invalidate.failed',
+        source,
+        timestamp,
+        error: errorMessage,
+      });
+    }
   }
 
   async getDashboard(bulan: number, tahun: number) {

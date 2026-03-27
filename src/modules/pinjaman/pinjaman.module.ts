@@ -6,9 +6,10 @@ import { PinjamanRepository } from './pinjaman.repository';
 import { TransaksiRepository } from '../transaksi/transaksi.repository';
 import { TransaksiModule } from '../transaksi/transaksi.module';
 import { AuditModule } from '../audit/audit.module';
+import { DashboardModule } from '../dashboard/dashboard.module';
 
 @Module({
-  imports: [AuditModule, TransaksiModule],
+  imports: [AuditModule, TransaksiModule, DashboardModule],
   controllers: [PinjamanController],
   providers: [
     PinjamanService,

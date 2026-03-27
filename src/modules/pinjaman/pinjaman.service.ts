@@ -26,6 +26,7 @@ import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
 import { AuditTrailService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
+import { DashboardService } from '../dashboard/dashboard.service';
 
 @Injectable()
 export class PinjamanService {
@@ -35,6 +36,7 @@ export class PinjamanService {
     private readonly transaksiService: TransaksiService,
     private readonly auditTrailService: AuditTrailService,
     private readonly settingsService: SettingsService,
+    private readonly dashboardService: DashboardService,
     private readonly prisma: PrismaClient,
   ) {}
 
@@ -336,6 +338,10 @@ export class PinjamanService {
       return result;
     });
 
+    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
+      'pinjaman:verifikasi',
+    );
+
     return {
       message: 'Verifikasi pinjaman berhasil',
       data: updated,
@@ -473,6 +479,9 @@ export class PinjamanService {
     }
 
     await this.pinjamanRepository.softDeletePinjaman(id);
+    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
+      'pinjaman:softDelete',
+    );
 
     return {
       message: 'Pinjaman berhasil dihapus',

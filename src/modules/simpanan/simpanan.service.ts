@@ -18,6 +18,7 @@ import { TransaksiService } from '../transaksi/transaksi.service';
 import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
+import { DashboardService } from '../dashboard/dashboard.service';
 
 @Injectable()
 export class SimpananService {
@@ -26,6 +27,7 @@ export class SimpananService {
     private readonly transaksiRepository: TransaksiRepository,
     private readonly transaksiService: TransaksiService,
     private readonly settingsService: SettingsService,
+    private readonly dashboardService: DashboardService,
     private readonly prisma: PrismaClient,
   ) {}
 
@@ -197,6 +199,9 @@ export class SimpananService {
     }
 
     await this.simpananRepository.softDeleteRekening(id);
+    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
+      'simpanan:softDeleteRekening',
+    );
 
     return {
       message: 'Rekening simpanan berhasil dihapus',

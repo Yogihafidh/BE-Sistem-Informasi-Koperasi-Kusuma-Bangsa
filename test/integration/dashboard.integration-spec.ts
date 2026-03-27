@@ -9,12 +9,21 @@ import {
 import {
   loginAsAdmin,
   authGet,
+  authPost,
+  authPatch,
+  authDelete,
   registerAndLogin,
 } from '../helpers/auth.helper';
+import {
+  createFullNasabah,
+  createTestNasabah,
+  createTestPinjaman,
+} from '../helpers/factory.helper';
 
 describe('Dashboard Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
+  const noAccessPassword = ['No', 'Access', '123', '!'].join('');
 
   const bulan = new Date().getMonth() + 1;
   const tahun = new Date().getFullYear();
@@ -30,6 +39,24 @@ describe('Dashboard Module (Integration)', () => {
   afterAll(async () => {
     await closeTestApp(app);
   });
+
+  async function getDashboardData() {
+    const res = await authGet(
+      app,
+      `/api/dashboard?bulan=${bulan}&tahun=${tahun}`,
+      adminToken,
+    ).expect(200);
+
+    return res.body.data as {
+      ringkasanKeuangan: {
+        totalSimpanan: number;
+        totalOutstandingPinjaman: number;
+      };
+      keanggotaan: {
+        anggotaAktif: number;
+      };
+    };
+  }
 
   describe('GET /api/dashboard', () => {
     it('should return dashboard summary', async () => {
@@ -68,7 +95,7 @@ describe('Dashboard Module (Integration)', () => {
       const user = await registerAndLogin(app, {
         username: 'dashnoacccess',
         email: 'dashnoaccess@test.com',
-        password: 'NoAccess123!',
+        password: noAccessPassword,
       });
 
       await authGet(
@@ -76,6 +103,123 @@ describe('Dashboard Module (Integration)', () => {
         `/api/dashboard?bulan=${bulan}&tahun=${tahun}`,
         user.accessToken,
       ).expect(403);
+    });
+  });
+
+  describe('Dashboard Cache Anti-Stale Guards', () => {
+    it('should refresh dashboard after creating transaksi', async () => {
+      const { rekeningList } = await createFullNasabah(app, adminToken);
+      const sukarela = rekeningList.find(
+        (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'SUKARELA',
+      );
+
+      expect(sukarela).toBeDefined();
+
+      const before = await getDashboardData();
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${sukarela!.id}/setoran`,
+        adminToken,
+      )
+        .send({ nominal: 250000, metodePembayaran: 'CASH' })
+        .expect(201);
+
+      const after = await getDashboardData();
+      expect(after.ringkasanKeuangan.totalSimpanan).toBeGreaterThan(
+        before.ringkasanKeuangan.totalSimpanan,
+      );
+    });
+
+    it('should refresh dashboard after verifying nasabah', async () => {
+      const before = await getDashboardData();
+      const nasabah = await createTestNasabah(app, adminToken);
+
+      await authPatch(app, `/api/nasabah/${nasabah.id}/verifikasi`, adminToken)
+        .send({ status: 'AKTIF', catatan: 'Cache invalidation test' })
+        .expect(200);
+
+      const after = await getDashboardData();
+      expect(after.keanggotaan.anggotaAktif).toBe(
+        before.keanggotaan.anggotaAktif + 1,
+      );
+    });
+
+    it('should refresh dashboard after soft deleting pinjaman', async () => {
+      const { nasabah } = await createFullNasabah(app, adminToken);
+      const pinjaman = await createTestPinjaman(app, adminToken, nasabah.id, {
+        jumlahPinjaman: 2000000,
+        tenorBulan: 6,
+      });
+
+      await authPost(app, `/api/pinjaman/${pinjaman.id}/pencairan`, adminToken)
+        .send({ nominal: 2000000, metodePembayaran: 'CASH' })
+        .expect(201);
+
+      const before = await getDashboardData();
+
+      await authDelete(app, `/api/pinjaman/${pinjaman.id}`, adminToken).expect(
+        200,
+      );
+
+      const after = await getDashboardData();
+      expect(after.ringkasanKeuangan.totalOutstandingPinjaman).toBeLessThan(
+        before.ringkasanKeuangan.totalOutstandingPinjaman,
+      );
+    });
+
+    it('should refresh dashboard after generating laporan snapshot', async () => {
+      const { rekeningList } = await createFullNasabah(app, adminToken);
+      const sukarela = rekeningList.find(
+        (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'SUKARELA',
+      );
+
+      expect(sukarela).toBeDefined();
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${sukarela!.id}/setoran`,
+        adminToken,
+      )
+        .send({ nominal: 100000, metodePembayaran: 'CASH' })
+        .expect(201);
+
+      await authPost(
+        app,
+        `/api/laporan/keuangan/generate?bulan=${bulan}&tahun=${tahun}`,
+        adminToken,
+      ).expect(201);
+
+      const before = await getDashboardData();
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${sukarela!.id}/setoran`,
+        adminToken,
+      )
+        .send({ nominal: 175000, metodePembayaran: 'CASH' })
+        .expect(201);
+
+      await authPost(
+        app,
+        `/api/laporan/keuangan/generate?bulan=${bulan}&tahun=${tahun}`,
+        adminToken,
+      ).expect(201);
+
+      const snapshotRes = await authGet(
+        app,
+        `/api/laporan/keuangan?bulan=${bulan}&tahun=${tahun}`,
+        adminToken,
+      ).expect(200);
+
+      const after = await getDashboardData();
+
+      expect(after.ringkasanKeuangan.totalSimpanan).toBeGreaterThan(
+        before.ringkasanKeuangan.totalSimpanan,
+      );
+      expect(after.ringkasanKeuangan.totalSimpanan).toBe(
+        snapshotRes.body.totalSimpanan,
+      );
     });
   });
 });

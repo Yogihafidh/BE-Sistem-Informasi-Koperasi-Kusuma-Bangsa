@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -15,6 +16,7 @@ import {
 } from '@prisma/client';
 import { LaporanRepository } from './laporan.repository';
 import { CacheService } from '../../common/cache/cache.service';
+import { DashboardService } from '../dashboard/dashboard.service';
 
 @Injectable()
 export class LaporanService {
@@ -31,6 +33,12 @@ export class LaporanService {
   constructor(
     private readonly laporanRepository: LaporanRepository,
     private readonly cacheService: CacheService,
+    @Inject(DashboardService)
+    private readonly dashboardService: {
+      invalidateDashboardBecauseFinancialChanged: (
+        source?: string,
+      ) => Promise<void>;
+    },
     private readonly configService: ConfigService,
   ) {}
 
@@ -1154,6 +1162,9 @@ export class LaporanService {
         });
 
     await this.invalidateKeuanganSnapshotCache(bulan, tahun);
+    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
+      'laporan:generate',
+    );
 
     return {
       message: 'Laporan keuangan berhasil di-generate',
@@ -1266,6 +1277,9 @@ export class LaporanService {
     await this.invalidateKeuanganSnapshotCache(
       laporan.periodeBulan,
       laporan.periodeTahun,
+    );
+    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
+      'laporan:finalize',
     );
 
     return {

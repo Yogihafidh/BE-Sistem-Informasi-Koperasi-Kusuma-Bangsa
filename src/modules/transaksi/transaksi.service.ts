@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -20,8 +19,6 @@ import { DashboardService } from '../dashboard/dashboard.service';
 
 @Injectable()
 export class TransaksiService {
-  private readonly logger = new Logger(TransaksiService.name);
-
   constructor(
     private readonly transaksiRepository: TransaksiRepository,
     private readonly settingsService: SettingsService,
@@ -31,16 +28,6 @@ export class TransaksiService {
 
   private toDecimal(value: number) {
     return new Prisma.Decimal(value);
-  }
-
-  private async invalidateDashboardCacheSafely() {
-    try {
-      await this.dashboardService.clearDashboardCache();
-    } catch {
-      this.logger.warn(
-        'Gagal menghapus cache dashboard setelah mutasi transaksi',
-      );
-    }
   }
 
   async createTransaksi(dto: CreateTransaksiDto, userId: number) {
@@ -255,7 +242,9 @@ export class TransaksiService {
       });
     });
 
-    await this.invalidateDashboardCacheSafely();
+    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
+      'transaksi:create',
+    );
 
     return {
       message: 'Transaksi berhasil diproses',
@@ -284,7 +273,9 @@ export class TransaksiService {
     }
 
     await this.transaksiRepository.softDeleteTransaksi(id);
-    await this.invalidateDashboardCacheSafely();
+    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
+      'transaksi:softDelete',
+    );
 
     return {
       message: 'Transaksi berhasil dihapus',

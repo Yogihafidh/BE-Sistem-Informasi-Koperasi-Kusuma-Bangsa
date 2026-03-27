@@ -26,6 +26,7 @@ import {
 import { MinioService } from '../../common/storage/minio.service';
 import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
 import { AuditTrailService } from '../audit/audit.service';
+import { DashboardService } from '../dashboard/dashboard.service';
 
 type UploadFile = {
   buffer: Buffer;
@@ -53,6 +54,7 @@ export class NasabahService {
     private readonly nasabahRepository: NasabahRepository,
     private readonly minioService: MinioService,
     private readonly auditTrailService: AuditTrailService,
+    private readonly dashboardService: DashboardService,
     private readonly prisma: PrismaClient,
   ) {}
 
@@ -84,7 +86,7 @@ export class NasabahService {
       noHp: data.noHp ?? null,
       pekerjaan: data.pekerjaan ?? null,
       instansi: data.instansi ?? null,
-      penghasilanBulanan: penghasilan != null ? Number(penghasilan) : null,
+      penghasilanBulanan: penghasilan == null ? null : Number(penghasilan),
       tanggalLahir:
         tanggalLahir instanceof Date
           ? tanggalLahir.toISOString()
@@ -680,6 +682,10 @@ export class NasabahService {
       return result;
     });
 
+    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
+      'nasabah:verifikasi',
+    );
+
     return {
       message: 'Verifikasi nasabah berhasil',
       data: updated,
@@ -731,6 +737,10 @@ export class NasabahService {
 
       return result;
     });
+
+    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
+      'nasabah:updateStatus',
+    );
 
     return {
       message: 'Status nasabah berhasil diperbarui',
