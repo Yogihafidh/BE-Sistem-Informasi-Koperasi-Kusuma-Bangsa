@@ -179,7 +179,7 @@ export class AuthService {
     });
 
     const refreshToken = this.jwtService.sign(
-      { sub: user.id },
+      { sub: user.id, tokenType: 'refresh' },
       {
         expiresIn: refreshTokenExpiresIn as StringValue,
       },
@@ -323,7 +323,57 @@ export class AuthService {
     };
   }
 
-  async refreshToken(userId: number) {
+  async refreshToken(refreshToken: string) {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token wajib diisi');
+    }
+
+    type RefreshTokenPayload = {
+      sub?: number;
+      tokenType?: string;
+      username?: string;
+      email?: string;
+      roles?: unknown;
+      permissions?: unknown;
+    };
+
+    let verifiedPayload: RefreshTokenPayload;
+    try {
+      verifiedPayload = this.jwtService.verify<RefreshTokenPayload>(
+        refreshToken,
+        {
+          secret:
+            this.configService.get<string>('jwt.secret') ||
+            'your-secret-key-change-in-production',
+        },
+      );
+    } catch {
+      throw new UnauthorizedException(
+        'Refresh token tidak valid atau sudah kedaluwarsa',
+      );
+    }
+
+    // Backward-compatible: old refresh token only has { sub }.
+    // Also prevents access token payload from being used for refresh.
+    const isLegacyRefreshToken =
+      !verifiedPayload.tokenType &&
+      !verifiedPayload.username &&
+      !verifiedPayload.email &&
+      !Array.isArray(verifiedPayload.roles) &&
+      !Array.isArray(verifiedPayload.permissions);
+
+    const isTypedRefreshToken = verifiedPayload.tokenType === 'refresh';
+
+    if (
+      !verifiedPayload.sub ||
+      (!isTypedRefreshToken && !isLegacyRefreshToken)
+    ) {
+      throw new UnauthorizedException(
+        'Refresh token tidak valid atau sudah kedaluwarsa',
+      );
+    }
+
+    const userId = verifiedPayload.sub;
     const user = await this.authRepository.findUserById(userId);
 
     if (!user) {

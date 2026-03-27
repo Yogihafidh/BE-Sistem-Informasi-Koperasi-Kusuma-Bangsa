@@ -235,11 +235,10 @@ describe('Auth Module (Integration)', () => {
   describe('POST /api/refresh', () => {
     it('should refresh access token', async () => {
       const tokens = await loginAsAdmin(app);
-      const res = await authPost(
-        app,
-        '/api/refresh',
-        tokens.refreshToken,
-      ).expect(201);
+      const res = await request(app.getHttpServer() as App)
+        .post('/api/refresh')
+        .send({ refreshToken: tokens.refreshToken })
+        .expect(201);
 
       expect(res.body.message).toBe('Token berhasil diperbarui');
       expect(res.body.accessToken).toBeDefined();
