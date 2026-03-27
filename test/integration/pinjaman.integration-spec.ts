@@ -88,25 +88,6 @@ describe('Pinjaman Module (Integration)', () => {
     });
   });
 
-  describe('GET /api/pinjaman/:id', () => {
-    it('should get pinjaman detail', async () => {
-      const res = await authGet(
-        app,
-        `/api/pinjaman/${pinjamanId}`,
-        adminToken,
-      ).expect(200);
-
-      expect(res.body.data.id).toBe(pinjamanId);
-      expect(res.body.data).toHaveProperty('jumlahPinjaman');
-      expect(res.body.data).toHaveProperty('status');
-      expect(res.body.data.nasabah).toBeDefined();
-    });
-
-    it('should return 404 for non-existent pinjaman', async () => {
-      await authGet(app, '/api/pinjaman/99999', adminToken).expect(404);
-    });
-  });
-
   describe('GET /api/pinjaman/nasabah/:nasabahId', () => {
     it('should list pinjaman by nasabah', async () => {
       const res = await authGet(
@@ -117,6 +98,7 @@ describe('Pinjaman Module (Integration)', () => {
 
       expect(res.body.data).toBeInstanceOf(Array);
       expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+      expect(res.body.data[0].nasabah).toBeUndefined();
     });
   });
 
@@ -211,25 +193,15 @@ describe('Pinjaman Module (Integration)', () => {
 
   describe('Auto-approved pinjaman flow', () => {
     it('should allow pencairan of auto-approved pinjaman', async () => {
-      // Auto-approved pinjaman (≤ 3M) should be ready for pencairan
-      const detail = await authGet(
+      const res = await authPost(
         app,
-        `/api/pinjaman/${autoApprovedPinjamanId}`,
+        `/api/pinjaman/${autoApprovedPinjamanId}/pencairan`,
         adminToken,
-      ).expect(200);
+      )
+        .send({ metodePembayaran: 'CASH' })
+        .expect(201);
 
-      // If auto-approved, it should already be DISETUJUI
-      if (detail.body.data.statusPinjaman === 'DISETUJUI') {
-        const res = await authPost(
-          app,
-          `/api/pinjaman/${autoApprovedPinjamanId}/pencairan`,
-          adminToken,
-        )
-          .send({ metodePembayaran: 'CASH' })
-          .expect(201);
-
-        expect(res.body.message).toContain('berhasil');
-      }
+      expect(res.body.message).toContain('berhasil');
     });
   });
 
@@ -257,11 +229,17 @@ describe('Pinjaman Module (Integration)', () => {
 
       expect(res.body.message).toBe('Pinjaman berhasil dihapus');
 
-      await authGet(
+      const listRes = await authGet(
         app,
-        `/api/pinjaman/${toDeletePinjamanId}`,
+        `/api/pinjaman/nasabah/${nasabahId}`,
         adminToken,
-      ).expect(404);
+      ).expect(200);
+
+      expect(
+        listRes.body.data.find(
+          (item: { id: number }) => item.id === toDeletePinjamanId,
+        ),
+      ).toBeUndefined();
     });
   });
 });

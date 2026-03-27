@@ -85,7 +85,6 @@ export class PinjamanRepository {
     const data = await this.prisma.pinjaman.findMany({
       where: { nasabahId: args.nasabahId, deletedAt: null },
       include: {
-        nasabah: true,
         verifiedBy: true,
       },
       orderBy: { id: 'desc' },

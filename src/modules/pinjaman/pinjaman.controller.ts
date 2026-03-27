@@ -96,38 +96,6 @@ export class PinjamanController {
     return this.pinjamanService.createPinjaman(dto, user.userId, request.ip);
   }
 
-  @Get(':id')
-  @ApiBearerAuth('JWT-auth')
-  @Permissions('pinjaman.read')
-  @ApiOperation({ summary: 'Dapatkan detail pinjaman' })
-  @ApiResponse({
-    status: 200,
-    description: 'Detail pinjaman berhasil diambil',
-    content: {
-      'application/json': {
-        example: {
-          message: 'Berhasil mengambil detail pinjaman',
-          data: {
-            id: 101,
-            nasabahId: 1,
-            jumlahPinjaman: 5000000,
-            bungaPersen: 1.5,
-            tenorBulan: 12,
-            sisaPinjaman: 5000000,
-            status: 'DISETUJUI',
-            verifiedById: 2,
-            tanggalPersetujuan: '2026-03-10T08:00:00.000Z',
-          },
-        },
-      },
-    },
-  })
-  @ApiNotFoundExample('Pinjaman tidak ditemukan')
-  @ApiAuthErrors()
-  getPinjamanById(@Param('id', ParseIntPipe) id: number) {
-    return this.pinjamanService.getPinjamanById(id);
-  }
-
   @Get('nasabah/:nasabahId')
   @ApiBearerAuth('JWT-auth')
   @Permissions('pinjaman.read')

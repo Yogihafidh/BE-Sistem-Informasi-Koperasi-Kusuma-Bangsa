@@ -136,18 +136,6 @@ export class PinjamanService {
     };
   }
 
-  async getPinjamanById(id: number) {
-    const pinjaman = await this.pinjamanRepository.findPinjamanById(id);
-    if (!pinjaman) {
-      throw new NotFoundException('Pinjaman tidak ditemukan');
-    }
-
-    return {
-      message: 'Berhasil mengambil detail pinjaman',
-      data: pinjaman,
-    };
-  }
-
   async listPinjamanByNasabah(nasabahId: number, cursor?: number) {
     const { data, nextCursor } =
       await this.pinjamanRepository.listPinjamanByNasabah({

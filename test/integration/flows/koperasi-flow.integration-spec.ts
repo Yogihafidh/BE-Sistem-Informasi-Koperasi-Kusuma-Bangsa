@@ -143,20 +143,6 @@ describe('Full Koperasi Business Flow (Integration)', () => {
   });
 
   it('Step 9: Pencairan pinjaman', async () => {
-    // Check if auto-approved
-    const detail = await authGet(
-      app,
-      `/api/pinjaman/${pinjamanId}`,
-      adminToken,
-    ).expect(200);
-
-    if (detail.body.data.statusPinjaman === 'MENUNGGU') {
-      // Verify first
-      await authPatch(app, `/api/pinjaman/${pinjamanId}/verifikasi`, adminToken)
-        .send({ status: 'DISETUJUI' })
-        .expect(200);
-    }
-
     const res = await authPost(
       app,
       `/api/pinjaman/${pinjamanId}/pencairan`,
