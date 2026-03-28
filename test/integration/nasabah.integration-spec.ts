@@ -13,7 +13,6 @@ import {
   authGet,
   authPost,
   authPatch,
-  authDelete,
 } from '../helpers/auth.helper';
 import { createTestPegawai } from '../helpers/factory.helper';
 
@@ -129,14 +128,35 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.data.length).toBeGreaterThanOrEqual(1);
       expect(res.body.pagination).toBeDefined();
     });
+
+    it('should filter nasabah by status PENDING', async () => {
+      const res = await authGet(
+        app,
+        '/api/nasabah?status=PENDING',
+        adminToken,
+      ).expect(200);
+
+      expect(res.body.data).toBeInstanceOf(Array);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+
+      for (const nasabah of res.body.data) {
+        expect(nasabah.status).toBe('PENDING');
+      }
+    });
   });
 
   describe('GET /api/nasabah/:id', () => {
     it('should get nasabah detail', async () => {
+      const pegawaiTokens = await loginAs(
+        app,
+        'nasabahpegawai',
+        'NasabahPeg123!',
+      );
+
       const res = await authGet(
         app,
         `/api/nasabah/${nasabahId}`,
-        adminToken,
+        pegawaiTokens.accessToken,
       ).expect(200);
 
       expect(res.body.data.id).toBe(nasabahId);
@@ -203,10 +223,16 @@ describe('Nasabah Module (Integration)', () => {
       expect(jenisList).toContain('SUKARELA');
     });
 
-    it('should reject re-verification of already verified nasabah', async () => {
-      await authPatch(app, `/api/nasabah/${nasabahId}/verifikasi`, adminToken)
-        .send({ status: 'AKTIF' })
-        .expect(400);
+    it('should allow re-verification of already verified nasabah', async () => {
+      const res = await authPatch(
+        app,
+        `/api/nasabah/${nasabahId}/verifikasi`,
+        adminToken,
+      )
+        .send({ status: 'DITOLAK', catatan: 'Perlu perbaikan data dokumen' })
+        .expect(200);
+
+      expect(res.body.data.status).toBe('DITOLAK');
     });
   });
 
@@ -270,41 +296,6 @@ describe('Nasabah Module (Integration)', () => {
         .expect(200);
 
       expect(res.body.data.status).toBe('AKTIF');
-    });
-  });
-
-  describe('DELETE /api/nasabah/:id', () => {
-    let toDeleteId: number;
-
-    beforeAll(async () => {
-      const pegawaiTokens = await loginAs(
-        app,
-        'nasabahpegawai',
-        'NasabahPeg123!',
-      );
-
-      const res = await authPost(app, '/api/nasabah', pegawaiTokens.accessToken)
-        .send({
-          nama: 'Delete Test',
-          nik: '3201030303030003',
-          alamat: 'Jl. Delete',
-          noHp: '081299990003',
-          pekerjaan: 'Lainnya',
-          penghasilanBulanan: 3000000,
-          tanggalLahir: '2000-01-01',
-        })
-        .expect(201);
-      toDeleteId = res.body.data.id;
-    });
-
-    it('should soft-delete nasabah', async () => {
-      const res = await authDelete(
-        app,
-        `/api/nasabah/${toDeleteId}`,
-        adminToken,
-      ).expect(200);
-
-      expect(res.body.message).toBe('Nasabah berhasil dihapus');
     });
   });
 });

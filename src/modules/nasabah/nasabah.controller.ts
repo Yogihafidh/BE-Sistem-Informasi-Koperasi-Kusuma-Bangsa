@@ -1,13 +1,14 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
   Param,
   Patch,
   Post,
   ParseIntPipe,
+  ParseEnumPipe,
   Query,
+  UploadedFile,
   UploadedFiles,
   UseGuards,
   Req,
@@ -17,12 +18,17 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiParam,
   ApiQuery,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  FileInterceptor,
+} from '@nestjs/platform-express';
+import { JenisDokumen, NasabahStatus } from '@prisma/client';
 import { NasabahService } from './nasabah.service';
 import {
   CreateNasabahDto,
@@ -38,6 +44,7 @@ import {
   ApiConflictExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import type { Request } from 'express';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
@@ -87,10 +94,20 @@ export class NasabahController {
   @Permissions('nasabah.read')
   @ApiOperation({ summary: 'Dapatkan semua nasabah' })
   @ApiQuery({
-    name: 'cursor',
+    name: 'after',
     required: false,
-    description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: NasabahStatus,
+    description: 'Filter status nasabah (contoh: PENDING, AKTIF, DITOLAK)',
   })
   @ApiResponse({
     status: 200,
@@ -114,8 +131,10 @@ export class NasabahController {
           ],
           pagination: {
             nextCursor: 1,
+            prevCursor: 20,
             limit: 20,
-            hasNext: false,
+            hasNext: true,
+            hasPrev: true,
           },
         },
       },
@@ -123,9 +142,13 @@ export class NasabahController {
   })
   @ApiAuthErrors()
   getAllNasabah(
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
+    @Query('status', new ParseEnumPipe(NasabahStatus, { optional: true }))
+    status?: NasabahStatus,
   ) {
-    return this.nasabahService.getAllNasabah(cursor);
+    validateBidirectionalPaginationParams(after, before);
+    return this.nasabahService.getAllNasabah({ after, before }, status);
   }
 
   @Get(':id')
@@ -140,11 +163,48 @@ export class NasabahController {
         example: {
           message: 'Berhasil mengambil data nasabah',
           data: {
-            id: 1,
-            nomorAnggota: 'AGT-20260205-1234',
-            nama: 'Siti Aminah',
-            status: 'PENDING',
-            statusKeterangan: 'Menunggu verifikasi pimpinan',
+            id: 97,
+            userId: null,
+            pegawaiId: 125,
+            nomorAnggota: 'AGT-20260310-3079',
+            nama: 'Yono Sebastian',
+            nik: '3201010101010007',
+            alamat: 'Jl. Kenanga No. TEST, Bandung',
+            noHp: '081234567890',
+            pekerjaan: 'Wiraswasta',
+            instansi: 'PT Maju Jaya',
+            penghasilanBulanan: '6000000',
+            tanggalLahir: '1995-08-17T00:00:00.000Z',
+            tanggalDaftar: '2026-02-05T00:00:00.000Z',
+            status: 'AKTIF',
+            catatan: 'Dokumen valid',
+            createdAt: '2026-03-10T07:36:39.731Z',
+            updatedAt: '2026-03-10T07:40:31.441Z',
+            deletedAt: null,
+            pegawai: {
+              id: 125,
+              nama: 'Yogi Hafidh Maulana',
+              jabatan: 'Direktur Keuangan',
+            },
+            user: null,
+            dokumen: [
+              {
+                id: 5,
+                nasabahId: 97,
+                jenisDokumen: 'KTP',
+                fileUrl:
+                  'http://localhost:9000/ktp-docs/nasabah/97/ktp-1773128418963-file.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+                uploadedAt: '2026-03-10T07:40:19.023Z',
+              },
+              {
+                id: 6,
+                nasabahId: 97,
+                jenisDokumen: 'KK',
+                fileUrl:
+                  'http://localhost:9000/kk-docs/nasabah/97/kk-1773128419027-file.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+                uploadedAt: '2026-03-10T07:40:19.081Z',
+              },
+            ],
           },
         },
       },
@@ -152,8 +212,11 @@ export class NasabahController {
   })
   @ApiNotFoundExample('Nasabah tidak ditemukan')
   @ApiAuthErrors()
-  getNasabahById(@Param('id', ParseIntPipe) id: number) {
-    return this.nasabahService.getNasabahById(id);
+  getNasabahById(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+  ) {
+    return this.nasabahService.getNasabahById(id, user);
   }
 
   @Patch(':id')
@@ -189,27 +252,6 @@ export class NasabahController {
     return this.nasabahService.updateNasabah(id, dto, user.userId, request.ip);
   }
 
-  @Delete(':id')
-  @ApiBearerAuth('JWT-auth')
-  @Permissions('nasabah.delete')
-  @ApiOperation({ summary: 'Hapus data nasabah' })
-  @ApiResponse({
-    status: 200,
-    description: 'Nasabah berhasil dihapus',
-    content: {
-      'application/json': {
-        example: {
-          message: 'Nasabah berhasil dihapus',
-        },
-      },
-    },
-  })
-  @ApiNotFoundExample('Nasabah tidak ditemukan')
-  @ApiAuthErrors()
-  deleteNasabah(@Param('id', ParseIntPipe) id: number) {
-    return this.nasabahService.deleteNasabah(id);
-  }
-
   @Post(':id/dokumen')
   @ApiBearerAuth('JWT-auth')
   @Permissions('nasabah.update')
@@ -238,14 +280,16 @@ export class NasabahController {
               id: 1,
               nasabahId: 1,
               jenisDokumen: 'KTP',
-              fileUrl: 'http://localhost:9000/ktp/nasabah/1/ktp.png',
+              fileUrl:
+                'http://localhost:9000/ktp-docs/nasabah/1/ktp-1773128418963-file.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
               uploadedAt: '2026-02-05T10:10:00.000Z',
             },
             {
               id: 2,
               nasabahId: 1,
               jenisDokumen: 'KK',
-              fileUrl: 'http://localhost:9000/kk/nasabah/1/kk.png',
+              fileUrl:
+                'http://localhost:9000/kk-docs/nasabah/1/kk-1773128419027-file.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
               uploadedAt: '2026-02-05T10:10:00.000Z',
             },
           ],
@@ -265,6 +309,7 @@ export class NasabahController {
   )
   uploadDokumen(
     @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
     @UploadedFiles()
     files: {
       ktp?: {
@@ -287,7 +332,74 @@ export class NasabahController {
       }[];
     },
   ) {
-    return this.nasabahService.uploadDokumen(id, files);
+    return this.nasabahService.uploadDokumen(id, files, user);
+  }
+
+  @Patch(':id/dokumen/:jenisDokumen')
+  @ApiBearerAuth('JWT-auth')
+  @Permissions('nasabah.update')
+  @ApiConsumes('multipart/form-data')
+  @ApiParam({
+    name: 'jenisDokumen',
+    enum: JenisDokumen,
+    description: 'Jenis dokumen yang ingin diperbarui',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiOperation({
+    summary: 'Update dokumen nasabah per jenis',
+    description:
+      'Upload file baru, hapus file lama di storage, lalu perbarui referensi dokumen di database.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Dokumen nasabah berhasil diperbarui',
+    content: {
+      'application/json': {
+        example: {
+          message: 'Dokumen nasabah berhasil diperbarui',
+          data: {
+            id: 5,
+            nasabahId: 97,
+            jenisDokumen: 'KTP',
+            fileUrl:
+              'http://localhost:9000/ktp-docs/nasabah/97/ktp-1773128418963-file.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+            uploadedAt: '2026-03-26T14:19:15.000Z',
+          },
+        },
+      },
+    },
+  })
+  @ApiBadRequestExample('File tidak valid')
+  @ApiNotFoundExample('Nasabah tidak ditemukan')
+  @ApiAuthErrors()
+  @UseInterceptors(FileInterceptor('file'))
+  updateDokumenNasabah(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('jenisDokumen', new ParseEnumPipe(JenisDokumen))
+    jenisDokumen: JenisDokumen,
+    @CurrentUser() user: UserFromJwt,
+    @UploadedFile()
+    file: {
+      buffer: Buffer;
+      originalname: string;
+      mimetype: string;
+      size: number;
+    },
+  ) {
+    return this.nasabahService.updateDokumenNasabah(
+      id,
+      jenisDokumen,
+      file,
+      user,
+    );
   }
 
   @Patch(':id/verifikasi')

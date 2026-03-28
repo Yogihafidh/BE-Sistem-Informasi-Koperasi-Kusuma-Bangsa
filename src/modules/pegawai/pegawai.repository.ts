@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
+import {
+  CursorPageRequest,
+  CursorPageResult,
+} from '../../common/types/pagination.type';
 
 export const pegawaiListSelect = Prisma.validator<Prisma.PegawaiSelect>()({
   id: true,
@@ -74,26 +78,55 @@ export class PegawaiRepository {
     });
   }
 
-  async findAllPegawai(cursor: number | undefined, take: number) {
-    const data = await this.prisma.pegawai.findMany({
+  async findAllPegawai(
+    page: CursorPageRequest,
+  ): Promise<CursorPageResult<PegawaiListRow>> {
+    const isBackward = typeof page.before === 'number';
+    const dataWhere: Prisma.PegawaiWhereInput = {
+      ...(typeof page.after === 'number' ? { id: { gt: page.after } } : {}),
+      ...(typeof page.before === 'number' ? { id: { lt: page.before } } : {}),
+    };
+
+    const rows = await this.prisma.pegawai.findMany({
+      where: dataWhere,
       select: pegawaiListSelect,
-      orderBy: { id: 'desc' },
-      take: take + 1,
-      ...(cursor
-        ? {
-            cursor: { id: cursor },
-            skip: 1,
-          }
-        : {}),
+      orderBy: { id: isBackward ? 'desc' : 'asc' },
+      take: page.take,
     });
 
-    let nextCursor: number | null = null;
-    if (data.length > take) {
-      const nextItem = data.pop();
-      nextCursor = nextItem?.id ?? null;
+    const data = isBackward ? [...rows].reverse() : rows;
+
+    if (data.length === 0) {
+      return {
+        data,
+        nextCursor: null,
+        prevCursor: null,
+        hasNext: false,
+        hasPrev: false,
+      };
     }
 
-    return { data, nextCursor };
+    const prevCursor = data[0].id;
+    const nextCursor = data.at(-1)!.id;
+
+    const [prevItem, nextItem] = await Promise.all([
+      this.prisma.pegawai.findFirst({
+        where: { id: { lt: prevCursor } },
+        select: { id: true },
+      }),
+      this.prisma.pegawai.findFirst({
+        where: { id: { gt: nextCursor } },
+        select: { id: true },
+      }),
+    ]);
+
+    return {
+      data,
+      nextCursor,
+      prevCursor,
+      hasNext: Boolean(nextItem),
+      hasPrev: Boolean(prevItem),
+    };
   }
 
   findPegawaiById(id: number) {

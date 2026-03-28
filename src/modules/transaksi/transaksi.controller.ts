@@ -1,17 +1,14 @@
 import {
-  Body,
   Controller,
   Delete,
   Get,
   Param,
   ParseIntPipe,
-  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiBody,
   ApiOperation,
   ApiQuery,
   ApiResponse,
@@ -19,14 +16,13 @@ import {
 } from '@nestjs/swagger';
 import { JenisTransaksi } from '@prisma/client';
 import { TransaksiService } from './transaksi.service';
-import { CreateTransaksiDto } from './dto';
 import { CurrentUser, Permissions } from '../../common/decorators';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import {
   ApiAuthErrors,
-  ApiBadRequestExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
 @ApiTags('transaksi')
@@ -35,63 +31,23 @@ import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 export class TransaksiController {
   constructor(private readonly transaksiService: TransaksiService) {}
 
-  @Post()
-  @ApiBearerAuth('JWT-auth')
-  @Permissions('transaksi.create')
-  @ApiOperation({
-    summary: 'Buat transaksi baru',
-    description:
-      'Mencatat transaksi setelah validasi bisnis, update saldo/pinjaman, lalu menyimpan histori transaksi yang berhasil.',
-  })
-  @ApiBody({
-    description:
-      'Isi data transaksi. Gunakan rekeningSimpananId untuk SETORAN/PENARIKAN, pinjamanId untuk PENCAIRAN/ANGSURAN.',
-    type: CreateTransaksiDto,
-  })
-  @ApiResponse({
-    status: 201,
-    description: 'Transaksi berhasil dicatat',
-    content: {
-      'application/json': {
-        example: {
-          message: 'Transaksi berhasil diproses',
-          data: {
-            id: 1,
-            nasabahId: 1,
-            pegawaiId: 2,
-            rekeningSimpananId: 10,
-            jenisTransaksi: 'SETORAN',
-            nominal: 150000,
-            metodePembayaran: 'TRANSFER',
-            tanggal: '2026-02-09T10:00:00.000Z',
-          },
-        },
-      },
-    },
-  })
-  @ApiBadRequestExample('Data transaksi tidak valid')
-  @ApiNotFoundExample('Nasabah tidak ditemukan')
-  @ApiAuthErrors()
-  createTransaksi(
-    @Body() dto: CreateTransaksiDto,
-    @CurrentUser() user: UserFromJwt,
-  ) {
-    return this.transaksiService.createTransaksi(dto, user.userId);
-  }
-
   @Get()
   @ApiBearerAuth('JWT-auth')
   @Permissions('transaksi.read')
   @ApiOperation({
     summary: 'Dapatkan daftar transaksi',
     description:
-      'Mendukung cursor pagination dan filter jenis serta rentang tanggal.',
+      'Mendukung pagination dua arah dan filter jenis serta rentang tanggal.',
   })
   @ApiQuery({
-    name: 'cursor',
+    name: 'after',
     required: false,
-    description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiQuery({
     name: 'jenisTransaksi',
@@ -130,8 +86,10 @@ export class TransaksiController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -139,13 +97,16 @@ export class TransaksiController {
   })
   @ApiAuthErrors()
   listTransaksi(
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('jenisTransaksi') jenisTransaksi?: JenisTransaksi,
     @Query('tanggalFrom') tanggalFrom?: string,
     @Query('tanggalTo') tanggalTo?: string,
   ) {
+    validateBidirectionalPaginationParams(after, before);
     return this.transaksiService.listTransaksi({
-      cursor,
+      after,
+      before,
       jenisTransaksi,
       tanggalFrom,
       tanggalTo,
@@ -160,10 +121,14 @@ export class TransaksiController {
     description: 'Histori transaksi milik nasabah tertentu.',
   })
   @ApiQuery({
-    name: 'cursor',
+    name: 'after',
     required: false,
-    description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiResponse({
     status: 200,
@@ -183,8 +148,10 @@ export class TransaksiController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -193,9 +160,14 @@ export class TransaksiController {
   @ApiAuthErrors()
   listTransaksiByNasabah(
     @Param('nasabahId', ParseIntPipe) nasabahId: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
   ) {
-    return this.transaksiService.listTransaksiByNasabah(nasabahId, cursor);
+    validateBidirectionalPaginationParams(after, before);
+    return this.transaksiService.listTransaksiByNasabah(nasabahId, {
+      after,
+      before,
+    });
   }
 
   @Get('pegawai/:pegawaiId')
@@ -206,10 +178,14 @@ export class TransaksiController {
     description: 'Histori transaksi yang dicatat oleh pegawai tertentu.',
   })
   @ApiQuery({
-    name: 'cursor',
+    name: 'after',
     required: false,
-    description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiResponse({
     status: 200,
@@ -229,8 +205,10 @@ export class TransaksiController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -239,9 +217,14 @@ export class TransaksiController {
   @ApiAuthErrors()
   listTransaksiByPegawai(
     @Param('pegawaiId', ParseIntPipe) pegawaiId: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
   ) {
-    return this.transaksiService.listTransaksiByPegawai(pegawaiId, cursor);
+    validateBidirectionalPaginationParams(after, before);
+    return this.transaksiService.listTransaksiByPegawai(pegawaiId, {
+      after,
+      before,
+    });
   }
 
   @Get(':id')
@@ -299,7 +282,10 @@ export class TransaksiController {
   })
   @ApiNotFoundExample('Transaksi tidak ditemukan')
   @ApiAuthErrors()
-  softDeleteTransaksi(@Param('id', ParseIntPipe) id: number) {
-    return this.transaksiService.softDeleteTransaksi(id);
+  softDeleteTransaksi(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+  ) {
+    return this.transaksiService.softDeleteTransaksi(id, user.userId);
   }
 }

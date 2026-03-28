@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, PrismaClient, JenisTransaksi } from '@prisma/client';
+import {
+  CursorPageRequest,
+  CursorPageResult,
+} from '../../common/types/pagination.type';
 
 const TRANSAKSI_SUMMARY_SELECT = {
   id: true,
@@ -86,23 +90,6 @@ export class TransaksiRepository {
     });
   }
 
-  createTransaksi(data: {
-    nasabahId: number;
-    pegawaiId: number;
-    rekeningSimpananId?: number;
-    pinjamanId?: number;
-    jenisTransaksi: JenisTransaksi;
-    nominal: number;
-    tanggal: Date;
-    metodePembayaran: string;
-    catatan?: string;
-  }) {
-    return this.prisma.transaksi.create({
-      data,
-      select: this.transaksiSummarySelect,
-    });
-  }
-
   findTransaksiSummaryById(id: number) {
     return this.prisma.transaksi.findFirst({
       where: { id, deletedAt: null },
@@ -119,35 +106,74 @@ export class TransaksiRepository {
   }
 
   private async findTransaksiList(args: {
-    cursor?: number;
-    take: number;
+    page: CursorPageRequest;
     where: Record<string, unknown>;
-  }) {
+  }): Promise<
+    CursorPageResult<
+      Prisma.TransaksiGetPayload<{ select: typeof TRANSAKSI_SUMMARY_SELECT }>
+    >
+  > {
+    const isBackward = typeof args.page.before === 'number';
+    const baseWhere = { deletedAt: null, ...args.where };
+
     const data = await this.prisma.transaksi.findMany({
-      where: { deletedAt: null, ...args.where },
+      where: {
+        ...baseWhere,
+        ...(typeof args.page.after === 'number'
+          ? { id: { gt: args.page.after } }
+          : {}),
+        ...(typeof args.page.before === 'number'
+          ? { id: { lt: args.page.before } }
+          : {}),
+      },
       select: this.transaksiSummarySelect,
-      orderBy: { id: 'desc' },
-      take: args.take + 1,
-      ...(args.cursor
-        ? {
-            cursor: { id: args.cursor },
-            skip: 1,
-          }
-        : {}),
+      orderBy: { id: isBackward ? 'desc' : 'asc' },
+      take: args.page.take,
     });
 
-    let nextCursor: number | null = null;
-    if (data.length > args.take) {
-      const nextItem = data.pop();
-      nextCursor = nextItem?.id ?? null;
+    const rows = isBackward ? [...data].reverse() : data;
+
+    if (rows.length === 0) {
+      return {
+        data: rows,
+        nextCursor: null,
+        prevCursor: null,
+        hasNext: false,
+        hasPrev: false,
+      };
     }
 
-    return { data, nextCursor };
+    const prevCursor = rows[0].id;
+    const nextCursor = rows.at(-1)!.id;
+
+    const [prevItem, nextItem] = await Promise.all([
+      this.prisma.transaksi.findFirst({
+        where: {
+          ...baseWhere,
+          id: { lt: prevCursor },
+        },
+        select: { id: true },
+      }),
+      this.prisma.transaksi.findFirst({
+        where: {
+          ...baseWhere,
+          id: { gt: nextCursor },
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    return {
+      data: rows,
+      nextCursor,
+      prevCursor,
+      hasNext: Boolean(nextItem),
+      hasPrev: Boolean(prevItem),
+    };
   }
 
   listTransaksi(args: {
-    cursor?: number;
-    take: number;
+    page: CursorPageRequest;
     jenisTransaksi?: JenisTransaksi;
     tanggalFrom?: Date;
     tanggalTo?: Date;
@@ -164,56 +190,41 @@ export class TransaksiRepository {
     }
 
     return this.findTransaksiList({
-      cursor: args.cursor,
-      take: args.take,
+      page: args.page,
       where,
     });
   }
 
-  listTransaksiByNasabah(args: {
-    nasabahId: number;
-    cursor?: number;
-    take: number;
-  }) {
+  listTransaksiByNasabah(args: { nasabahId: number; page: CursorPageRequest }) {
     return this.findTransaksiList({
-      cursor: args.cursor,
-      take: args.take,
+      page: args.page,
       where: { nasabahId: args.nasabahId },
     });
   }
 
-  listTransaksiByPegawai(args: {
-    pegawaiId: number;
-    cursor?: number;
-    take: number;
-  }) {
+  listTransaksiByPegawai(args: { pegawaiId: number; page: CursorPageRequest }) {
     return this.findTransaksiList({
-      cursor: args.cursor,
-      take: args.take,
+      page: args.page,
       where: { pegawaiId: args.pegawaiId },
     });
   }
 
   listTransaksiByRekening(args: {
     rekeningSimpananId: number;
-    cursor?: number;
-    take: number;
+    page: CursorPageRequest;
   }) {
     return this.findTransaksiList({
-      cursor: args.cursor,
-      take: args.take,
+      page: args.page,
       where: { rekeningSimpananId: args.rekeningSimpananId },
     });
   }
 
   listTransaksiByPinjaman(args: {
     pinjamanId: number;
-    cursor?: number;
-    take: number;
+    page: CursorPageRequest;
   }) {
     return this.findTransaksiList({
-      cursor: args.cursor,
-      take: args.take,
+      page: args.page,
       where: { pinjamanId: args.pinjamanId },
     });
   }

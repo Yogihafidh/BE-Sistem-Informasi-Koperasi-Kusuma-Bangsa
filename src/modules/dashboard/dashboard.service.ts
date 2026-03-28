@@ -1,11 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  JenisSimpanan,
-  JenisTransaksi,
-  NasabahStatus,
-  Prisma,
-} from '@prisma/client';
+import { JenisSimpanan, JenisTransaksi, Prisma } from '@prisma/client';
 import { DashboardRepository } from './dashboard.repository';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
@@ -13,16 +8,29 @@ import { CacheService } from '../../common/cache/cache.service';
 
 @Injectable()
 export class DashboardService {
+  private readonly logger = new Logger(DashboardService.name);
+  private readonly dashboardCacheTtlSeconds: number;
+
   constructor(
     private readonly dashboardRepository: DashboardRepository,
     private readonly settingsService: SettingsService,
     private readonly cacheService: CacheService,
     private readonly configService: ConfigService,
-  ) {}
+  ) {
+    const configured =
+      this.configService.get<number>('app.cacheTtlDashboardSeconds') ?? 45;
+    this.dashboardCacheTtlSeconds = Math.min(
+      60,
+      Math.max(30, Math.floor(configured)),
+    );
+  }
 
-  private toNumber(value: Prisma.Decimal | number | null | undefined) {
+  private toNumber(value: Prisma.Decimal | number | bigint | null | undefined) {
     if (value === null || value === undefined) {
       return 0;
+    }
+    if (typeof value === 'bigint') {
+      return Number(value);
     }
     return value instanceof Prisma.Decimal ? value.toNumber() : Number(value);
   }
@@ -33,16 +41,18 @@ export class DashboardService {
     return { start, end };
   }
 
-  private shiftMonth(bulan: number, tahun: number, offset: number) {
-    const date = new Date(tahun, bulan - 1, 1);
-    date.setMonth(date.getMonth() + offset);
-    return { bulan: date.getMonth() + 1, tahun: date.getFullYear() };
+  private getTrendRange(bulan: number, tahun: number, trendMonths: number) {
+    const endMonth = new Date(Date.UTC(tahun, bulan - 1, 1));
+    const startMonth = new Date(Date.UTC(tahun, bulan - trendMonths, 1));
+
+    return { startMonth, endMonth };
   }
 
-  private calculateGrowth(current: number, previous: number) {
+  private calculateGrowth(current: number, previous: number): number {
     if (previous <= 0) {
-      return null;
+      return 0;
     }
+
     return (current - previous) / previous;
   }
 
@@ -64,23 +74,18 @@ export class DashboardService {
     return `${monthNames[bulan - 1]} ${tahun}`;
   }
 
-  private getCacheKey(bulan: number, tahun: number) {
-    return `dashboard:${tahun}:${bulan}`;
-  }
-
-  private getCacheTtlSeconds() {
-    return (
-      this.configService.get<number>('app.cacheTtlDashboardSeconds') ?? 600
-    );
+  private getDashboardCacheKey(bulan: number, tahun: number) {
+    return `dashboard:${bulan}:${tahun}`;
   }
 
   async getDashboard(bulan: number, tahun: number) {
-    const cached = await this.cacheService.getJson<Record<string, unknown>>(
-      this.getCacheKey(bulan, tahun),
-    );
-    if (cached) {
+    const cacheKey = this.getDashboardCacheKey(bulan, tahun);
+    const cached = await this.cacheService.getJson<unknown>(cacheKey);
+    if (cached !== null) {
+      this.logger.debug(`cache hit: ${cacheKey}`);
       return cached;
     }
+    this.logger.debug(`cache miss: ${cacheKey}`);
 
     const trendMonthsSetting = await this.settingsService.getNumber(
       SETTING_KEYS.DASHBOARD_TREND_MONTHS,
@@ -88,173 +93,208 @@ export class DashboardService {
     const trendMonths = Math.max(1, Math.floor(trendMonthsSetting));
 
     const { start, end } = this.getMonthRange(bulan, tahun);
-    const snapshot =
-      await this.dashboardRepository.findLaporanKeuanganByPeriode(bulan, tahun);
+    const previous = this.getMonthRange(
+      bulan === 1 ? 12 : bulan - 1,
+      bulan === 1 ? tahun - 1 : tahun,
+    );
+    const trendRange = this.getTrendRange(bulan, tahun, trendMonths);
 
     const [
-      totalSimpananAgg,
-      totalOutstandingAgg,
-      setoranAgg,
-      penarikanAgg,
-      angsuranAgg,
+      currentGroupedTransaksi,
+      currentTotalTransaksi,
+      previousTotalTransaksi,
       saldoGrouped,
+      totalOutstandingAgg,
       topOutstanding,
-      totalAnggota,
-      anggotaAktif,
+      totalNasabah,
+      aktifNasabah,
+      nasabahBaru,
+      nasabahKeluar,
+      cashflowTrendRows,
+      keanggotaanTrendRows,
     ] = await Promise.all([
-      this.dashboardRepository.sumSaldoSimpanan(),
-      this.dashboardRepository.sumPinjamanAktifNominal(),
-      this.dashboardRepository.sumTransaksiNominal({
-        jenisTransaksi: JenisTransaksi.SETORAN,
+      this.dashboardRepository.groupTransaksiByJenis({
         tanggalFrom: start,
         tanggalTo: end,
       }),
-      this.dashboardRepository.sumTransaksiNominal({
-        jenisTransaksi: JenisTransaksi.PENARIKAN,
+      this.dashboardRepository.countTransaksi({
         tanggalFrom: start,
         tanggalTo: end,
       }),
-      this.dashboardRepository.sumTransaksiNominal({
-        jenisTransaksi: JenisTransaksi.ANGSURAN,
-        tanggalFrom: start,
-        tanggalTo: end,
+      this.dashboardRepository.countTransaksi({
+        tanggalFrom: previous.start,
+        tanggalTo: previous.end,
       }),
       this.dashboardRepository.groupSaldoSimpananByJenis(),
+      this.dashboardRepository.sumPinjamanAktifNominal(),
       this.dashboardRepository.listTopOutstandingPinjaman(5),
-      this.dashboardRepository.countNasabah({ deletedAt: null }),
-      this.dashboardRepository.countNasabah({
-        deletedAt: null,
-        status: NasabahStatus.AKTIF,
+      this.dashboardRepository.countNasabahTotal(),
+      this.dashboardRepository.countNasabahAktif(),
+      this.dashboardRepository.countNasabahBaru({
+        tanggalFrom: start,
+        tanggalTo: end,
+      }),
+      this.dashboardRepository.countNasabahKeluar({
+        tanggalFrom: start,
+        tanggalTo: end,
+      }),
+      this.dashboardRepository.getCashflowTrend({
+        startMonth: trendRange.startMonth,
+        endMonth: trendRange.endMonth,
+      }),
+      this.dashboardRepository.getKeanggotaanTrend({
+        startMonth: trendRange.startMonth,
+        endMonth: trendRange.endMonth,
       }),
     ]);
 
-    const totalSimpanan = this.toNumber(totalSimpananAgg._sum.saldoBerjalan);
-    const totalOutstandingPinjaman = this.toNumber(
+    const nominalByJenis = (rows: typeof currentGroupedTransaksi) => {
+      const map = {
+        [JenisTransaksi.SETORAN]: 0,
+        [JenisTransaksi.ANGSURAN]: 0,
+        [JenisTransaksi.PENARIKAN]: 0,
+        [JenisTransaksi.PENCAIRAN]: 0,
+      };
+
+      for (const row of rows) {
+        map[row.jenisTransaksi] = this.toNumber(row._sum.nominal);
+      }
+
+      return map;
+    };
+
+    const currentNominal = nominalByJenis(currentGroupedTransaksi);
+    const komposisiSimpanan = {
+      pokok: 0,
+      wajib: 0,
+      sukarela: 0,
+    };
+    for (const row of saldoGrouped) {
+      if (row.jenisSimpanan === JenisSimpanan.POKOK) {
+        komposisiSimpanan.pokok = this.toNumber(row._sum.saldoBerjalan);
+      }
+      if (row.jenisSimpanan === JenisSimpanan.WAJIB) {
+        komposisiSimpanan.wajib = this.toNumber(row._sum.saldoBerjalan);
+      }
+      if (row.jenisSimpanan === JenisSimpanan.SUKARELA) {
+        komposisiSimpanan.sukarela = this.toNumber(row._sum.saldoBerjalan);
+      }
+    }
+
+    const totalSimpanan =
+      komposisiSimpanan.pokok +
+      komposisiSimpanan.wajib +
+      komposisiSimpanan.sukarela;
+    const pinjamanOutstanding = this.toNumber(
       totalOutstandingAgg._sum.sisaPinjaman,
     );
 
-    const totalSetoran = snapshot
-      ? this.toNumber(snapshot.totalSimpanan)
-      : this.toNumber(setoranAgg._sum.nominal);
-    const totalPenarikan = snapshot
-      ? this.toNumber(snapshot.totalPenarikan)
-      : this.toNumber(penarikanAgg._sum.nominal);
-    const angsuranBulanIni = snapshot
-      ? this.toNumber(snapshot.totalAngsuran)
-      : this.toNumber(angsuranAgg._sum.nominal);
-
-    const prevTotalSimpanan = totalSimpanan - (totalSetoran - totalPenarikan);
-    const growthSimpanan = this.calculateGrowth(
-      totalSimpanan,
-      prevTotalSimpanan,
+    const previousSimpanan = Math.max(
+      0,
+      totalSimpanan - currentNominal.SETORAN + currentNominal.PENARIKAN,
+    );
+    const previousAktifNasabah = Math.max(
+      0,
+      aktifNasabah - nasabahBaru + nasabahKeluar,
     );
 
-    const komposisiSimpanan: Record<string, number> = {
-      [JenisSimpanan.POKOK]: 0,
-      [JenisSimpanan.WAJIB]: 0,
-      [JenisSimpanan.SUKARELA]: 0,
+    const performance = {
+      simpanan: this.calculateGrowth(totalSimpanan, previousSimpanan),
+      transaksi: this.calculateGrowth(
+        currentTotalTransaksi,
+        previousTotalTransaksi,
+      ),
+      anggota: this.calculateGrowth(aktifNasabah, previousAktifNasabah),
     };
-    for (const row of saldoGrouped) {
-      komposisiSimpanan[row.jenisSimpanan] = this.toNumber(
-        row._sum.saldoBerjalan,
-      );
+
+    const cashflowTrend = cashflowTrendRows
+      .map((row) => ({
+        year: row.year,
+        month: row.month,
+        bulan: this.formatMonthLabel(row.month, row.year),
+        kasMasuk: this.toNumber(row.kasMasuk),
+        kasKeluar: this.toNumber(row.kasKeluar),
+      }))
+      .filter((row) => row.kasMasuk !== 0 || row.kasKeluar !== 0)
+      .sort((a, b) => (a.year - b.year) * 12 + (a.month - b.month))
+      .map(({ bulan: monthLabel, kasMasuk, kasKeluar }) => ({
+        bulan: monthLabel,
+        kasMasuk,
+        kasKeluar,
+      }));
+
+    const trenKeanggotaan = keanggotaanTrendRows
+      .map((row) => ({
+        year: row.year,
+        month: row.month,
+        bulan: this.formatMonthLabel(row.month, row.year),
+        anggotaBaru: this.toNumber(row.anggotaBaru),
+        anggotaKeluar: this.toNumber(row.anggotaKeluar),
+      }))
+      .filter((row) => row.anggotaBaru !== 0 || row.anggotaKeluar !== 0)
+      .sort((a, b) => (a.year - b.year) * 12 + (a.month - b.month))
+      .map(({ bulan: monthLabel, anggotaBaru, anggotaKeluar }) => ({
+        bulan: monthLabel,
+        anggotaBaru,
+        anggotaKeluar,
+      }));
+
+    const kasMasukBulanIni = currentNominal.SETORAN + currentNominal.ANGSURAN;
+    const kasKeluarBulanIni =
+      currentNominal.PENARIKAN + currentNominal.PENCAIRAN;
+
+    const cashflow: 'surplus' | 'defisit' =
+      kasMasukBulanIni >= kasKeluarBulanIni ? 'surplus' : 'defisit';
+
+    const negatifCount = [
+      performance.simpanan,
+      performance.transaksi,
+      performance.anggota,
+    ].filter((value) => value < 0).length;
+    let kondisi: 'stabil' | 'belum stabil' | 'berisiko' = 'belum stabil';
+    if (cashflow === 'surplus' && negatifCount <= 1) {
+      kondisi = 'stabil';
+    } else if (cashflow === 'defisit' && negatifCount >= 2) {
+      kondisi = 'berisiko';
     }
 
-    const monthRanges = Array.from({ length: trendMonths }, (_, index) => {
-      const shifted = this.shiftMonth(bulan, tahun, -(trendMonths - 1 - index));
-      return {
-        bulan: shifted.bulan,
-        tahun: shifted.tahun,
-        range: this.getMonthRange(shifted.bulan, shifted.tahun),
-      };
-    });
-
-    const [cashflowTrend, trenAnggota] = await Promise.all([
-      Promise.all(
-        monthRanges.map(async (item) => {
-          const [kasMasukAgg, kasKeluarAgg] = await Promise.all([
-            this.dashboardRepository.sumTransaksiNominal({
-              jenisTransaksi: [JenisTransaksi.SETORAN, JenisTransaksi.ANGSURAN],
-              tanggalFrom: item.range.start,
-              tanggalTo: item.range.end,
-            }),
-            this.dashboardRepository.sumTransaksiNominal({
-              jenisTransaksi: [
-                JenisTransaksi.PENARIKAN,
-                JenisTransaksi.PENCAIRAN,
-              ],
-              tanggalFrom: item.range.start,
-              tanggalTo: item.range.end,
-            }),
-          ]);
-
-          return {
-            bulan: this.formatMonthLabel(item.bulan, item.tahun),
-            kasMasuk: this.toNumber(kasMasukAgg._sum.nominal),
-            kasKeluar: this.toNumber(kasKeluarAgg._sum.nominal),
-          };
-        }),
-      ),
-      Promise.all(
-        monthRanges.map(async (item) => {
-          const [anggotaBaru, anggotaKeluar] = await Promise.all([
-            this.dashboardRepository.countNasabah({
-              deletedAt: null,
-              createdAt: { gte: item.range.start, lte: item.range.end },
-            }),
-            this.dashboardRepository.countNasabah({
-              deletedAt: null,
-              status: NasabahStatus.NONAKTIF,
-              updatedAt: { gte: item.range.start, lte: item.range.end },
-            }),
-          ]);
-
-          return {
-            bulan: this.formatMonthLabel(item.bulan, item.tahun),
-            anggotaBaru,
-            anggotaKeluar,
-          };
-        }),
-      ),
-    ]);
-
-    const topOutstandingValues = topOutstanding.map((item) => ({
-      pinjamanId: item.id,
-      nominal: this.toNumber(item.sisaPinjaman),
-    }));
-
-    const response = {
-      message: 'Berhasil mengambil data dashboard',
-      data: {
-        periode: { bulan, tahun },
-        ringkasanKeuangan: {
-          totalSimpanan,
-          totalOutstandingPinjaman,
-          angsuranBulanIni,
-          penarikanBulanIni: totalPenarikan,
-          growthSimpanan,
-          komposisiSimpanan,
-        },
-        aktivitasTransaksi: {
-          cashflowTrend,
-        },
-        kreditPinjaman: {
-          topOutstanding: topOutstandingValues,
-        },
-        keanggotaan: {
-          totalAnggota,
-          anggotaAktif,
-          trenAnggota,
-        },
+    const payload = {
+      periode: { bulan, tahun },
+      ringkasanKeuangan: {
+        simpanan: totalSimpanan,
+        pinjamanOutstanding,
+        angsuranBulanIni: currentNominal.ANGSURAN,
+        penarikanBulanIni: currentNominal.PENARIKAN,
+        komposisiSimpanan,
+      },
+      performance,
+      aktivitasTransaksi: {
+        cashflowTrend,
+      },
+      kreditPinjaman: {
+        topOutstanding: topOutstanding.map((item) => ({
+          pinjamanId: item.id,
+          namaAnggota: item.nasabah.nama,
+          nominal: this.toNumber(item.sisaPinjaman),
+        })),
+      },
+      keanggotaan: {
+        total: totalNasabah,
+        aktif: aktifNasabah,
+        tren: trenKeanggotaan,
+      },
+      highlight: {
+        cashflow,
+        kondisi,
       },
     };
 
     await this.cacheService.setJson(
-      this.getCacheKey(bulan, tahun),
-      response,
-      this.getCacheTtlSeconds(),
+      cacheKey,
+      payload,
+      this.dashboardCacheTtlSeconds,
     );
 
-    return response;
+    return payload;
   }
 }

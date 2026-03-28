@@ -106,9 +106,12 @@ model NasabahDokumen {
   id           Int          @id @default(autoincrement())
   nasabahId    Int
   jenisDokumen JenisDokumen
-  fileUrl      String
+  fileKey      String
+  deletedAt    DateTime?    @db.Timestamptz(3)
   uploadedAt   DateTime     @default(now()) @db.Timestamptz(3)
   nasabah      Nasabah      @relation(fields: [nasabahId], references: [id], onDelete: Cascade)
+
+  @@index([nasabahId, deletedAt])
 }
 
 model RekeningSimpanan {
@@ -260,8 +263,11 @@ enum AuditAction {
   LOGIN_FAILED
   CREATE
   UPDATE
+  DELETE
   APPROVE
   REJECT
+  GENERATE_REPORT
+  FINALIZE_REPORT
 }
 
 enum StatusLaporan {

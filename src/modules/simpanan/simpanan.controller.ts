@@ -26,6 +26,7 @@ import {
   ApiBadRequestExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
 @ApiTags('simpanan')
@@ -61,33 +62,6 @@ export class SimpananController {
   @ApiAuthErrors()
   listRekeningByNasabah(@Param('nasabahId', ParseIntPipe) nasabahId: number) {
     return this.simpananService.listRekeningByNasabah(nasabahId);
-  }
-
-  @Get('rekening/:id')
-  @ApiBearerAuth('JWT-auth')
-  @Permissions('simpanan.read')
-  @ApiOperation({ summary: 'Dapatkan detail rekening simpanan' })
-  @ApiResponse({
-    status: 200,
-    description: 'Detail rekening simpanan berhasil diambil',
-    content: {
-      'application/json': {
-        example: {
-          message: 'Berhasil mengambil detail rekening simpanan',
-          data: {
-            id: 11,
-            nasabahId: 1,
-            jenisSimpanan: 'SUKARELA',
-            saldoBerjalan: 2500000,
-          },
-        },
-      },
-    },
-  })
-  @ApiNotFoundExample('Rekening simpanan tidak ditemukan')
-  @ApiAuthErrors()
-  getRekeningById(@Param('id', ParseIntPipe) id: number) {
-    return this.simpananService.getRekeningById(id);
   }
 
   @Post('rekening/:id/setoran')
@@ -177,10 +151,14 @@ export class SimpananController {
   @Permissions('simpanan.read')
   @ApiOperation({ summary: 'Histori transaksi simpanan' })
   @ApiQuery({
-    name: 'cursor',
+    name: 'after',
     required: false,
-    description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiResponse({
     status: 200,
@@ -200,8 +178,10 @@ export class SimpananController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -211,9 +191,14 @@ export class SimpananController {
   @ApiAuthErrors()
   listTransaksiByRekening(
     @Param('id', ParseIntPipe) id: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
   ) {
-    return this.simpananService.listTransaksiByRekening(id, cursor);
+    validateBidirectionalPaginationParams(after, before);
+    return this.simpananService.listTransaksiByRekening(id, {
+      after,
+      before,
+    });
   }
 
   @Delete('rekening/:id')
@@ -238,7 +223,10 @@ export class SimpananController {
   @ApiBadRequestExample('Rekening dengan saldo masih ada tidak dapat dihapus')
   @ApiNotFoundExample('Rekening simpanan tidak ditemukan')
   @ApiAuthErrors()
-  softDeleteRekening(@Param('id', ParseIntPipe) id: number) {
-    return this.simpananService.softDeleteRekening(id);
+  softDeleteRekening(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+  ) {
+    return this.simpananService.softDeleteRekening(id, user.userId);
   }
 }

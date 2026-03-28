@@ -2,12 +2,18 @@ import { Controller, Get, Post, Body, UseGuards, Req } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
+  ApiBody,
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, ChangePasswordDto } from './dto';
+import {
+  RegisterDto,
+  LoginDto,
+  ChangePasswordDto,
+  RefreshTokenDto,
+} from './dto';
 import { Public, CurrentUser } from '../../common/decorators';
 import {
   ApiAuthErrors,
@@ -16,10 +22,7 @@ import {
   ApiForbiddenExample,
   ApiUnauthorizedExample,
 } from '../../common/decorators/api-docs.decorator';
-import {
-  JwtAuthGuard,
-  PermissionsGuard,
-} from '../../common/guards';
+import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import type { UserFromJwt } from './interfaces/jwt-payload.interface';
 
 @ApiTags('auth')
@@ -140,9 +143,22 @@ export class AuthController {
   }
 
   // Refresh Token JWT
+  @Public()
   @Post('refresh')
-  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Refresh access token' })
+  @ApiBody({
+    required: true,
+    schema: {
+      type: 'object',
+      properties: {
+        refreshToken: {
+          type: 'string',
+          example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        },
+      },
+      required: ['refreshToken'],
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'Token berhasil di-refresh',
@@ -156,8 +172,8 @@ export class AuthController {
     },
   })
   @ApiAuthErrors()
-  refreshToken(@CurrentUser() user: UserFromJwt) {
-    return this.authService.refreshToken(user.userId);
+  refreshToken(@Body() dto: RefreshTokenDto) {
+    return this.authService.refreshToken(dto.refreshToken);
   }
 
   @Post('logout')
@@ -181,4 +197,3 @@ export class AuthController {
     return this.authService.logout(token, request.ip);
   }
 }
-

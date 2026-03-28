@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AuditAction,
   JenisSimpanan,
   JenisTransaksi,
   NasabahStatus,
@@ -16,8 +17,10 @@ import { SimpananTransaksiDto } from './dto';
 import { TransaksiRepository } from '../transaksi/transaksi.repository';
 import { TransaksiService } from '../transaksi/transaksi.service';
 import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
+import { AuditTrailService } from '../audit/audit.service';
 
 @Injectable()
 export class SimpananService {
@@ -26,6 +29,7 @@ export class SimpananService {
     private readonly transaksiRepository: TransaksiRepository,
     private readonly transaksiService: TransaksiService,
     private readonly settingsService: SettingsService,
+    private readonly auditTrailService: AuditTrailService,
     private readonly prisma: PrismaClient,
   ) {}
 
@@ -39,18 +43,6 @@ export class SimpananService {
     return {
       message: 'Berhasil mengambil rekening simpanan nasabah',
       data,
-    };
-  }
-
-  async getRekeningById(id: number) {
-    const rekening = await this.simpananRepository.findRekeningById(id);
-    if (!rekening) {
-      throw new NotFoundException('Rekening simpanan tidak ditemukan');
-    }
-
-    return {
-      message: 'Berhasil mengambil detail rekening simpanan',
-      data: rekening,
     };
   }
 
@@ -172,17 +164,25 @@ export class SimpananService {
     );
   }
 
-  async listTransaksiByRekening(rekeningId: number, cursor?: number) {
+  async listTransaksiByRekening(
+    rekeningId: number,
+    args: { after?: number; before?: number },
+  ) {
+    validateBidirectionalPaginationParams(args.after, args.before);
+
     const rekening = await this.simpananRepository.findRekeningById(rekeningId);
     if (!rekening) {
       throw new NotFoundException('Rekening simpanan tidak ditemukan');
     }
 
-    const { data, nextCursor } =
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByRekening({
         rekeningSimpananId: rekeningId,
-        cursor,
-        take: DEFAULT_PAGE_SIZE,
+        page: {
+          after: args.after,
+          before: args.before,
+          take: DEFAULT_PAGE_SIZE,
+        },
       });
 
     return {
@@ -190,13 +190,15 @@ export class SimpananService {
       data,
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }
 
-  async softDeleteRekening(id: number) {
+  async softDeleteRekening(id: number, userId: number) {
     const rekening = await this.simpananRepository.findRekeningById(id);
     if (!rekening) {
       throw new NotFoundException('Rekening simpanan tidak ditemukan');
@@ -209,7 +211,22 @@ export class SimpananService {
     }
 
     await this.simpananRepository.softDeleteRekening(id);
-
+    await this.auditTrailService.log({
+      action: 'DELETE' as AuditAction,
+      userId,
+      entityName: 'simpanan',
+      entityId: rekening.id,
+      before: {
+        id: rekening.id,
+        nasabahId: rekening.nasabahId,
+        jenisSimpanan: rekening.jenisSimpanan,
+        saldoBerjalan: Number(rekening.saldoBerjalan),
+        deletedAt: rekening.deletedAt?.toISOString() ?? null,
+      },
+      after: {
+        deletedAt: new Date().toISOString(),
+      },
+    });
     return {
       message: 'Rekening simpanan berhasil dihapus',
     };

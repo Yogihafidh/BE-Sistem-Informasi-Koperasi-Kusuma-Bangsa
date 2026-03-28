@@ -7,3 +7,4 @@ export * from './update-role.dto';
 export * from './create-permission.dto';
 export * from './assign-permissions.dto';
 export * from './assign-roles.dto';
+export * from './refresh-token.dto';

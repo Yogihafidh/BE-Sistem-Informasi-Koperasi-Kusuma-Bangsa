@@ -88,25 +88,6 @@ describe('Pinjaman Module (Integration)', () => {
     });
   });
 
-  describe('GET /api/pinjaman/:id', () => {
-    it('should get pinjaman detail', async () => {
-      const res = await authGet(
-        app,
-        `/api/pinjaman/${pinjamanId}`,
-        adminToken,
-      ).expect(200);
-
-      expect(res.body.data.id).toBe(pinjamanId);
-      expect(res.body.data).toHaveProperty('jumlahPinjaman');
-      expect(res.body.data).toHaveProperty('status');
-      expect(res.body.data.nasabah).toBeDefined();
-    });
-
-    it('should return 404 for non-existent pinjaman', async () => {
-      await authGet(app, '/api/pinjaman/99999', adminToken).expect(404);
-    });
-  });
-
   describe('GET /api/pinjaman/nasabah/:nasabahId', () => {
     it('should list pinjaman by nasabah', async () => {
       const res = await authGet(
@@ -117,6 +98,106 @@ describe('Pinjaman Module (Integration)', () => {
 
       expect(res.body.data).toBeInstanceOf(Array);
       expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+      expect(res.body.data[0].nasabah).toBeUndefined();
+      expect(res.body.data[0].verifiedById).toBeUndefined();
+    });
+  });
+
+  describe('GET /api/pinjaman', () => {
+    it('should list all pinjaman and filter by status', async () => {
+      const res = await authGet(
+        app,
+        '/api/pinjaman?status=PENDING',
+        adminToken,
+      ).expect(200);
+
+      expect(res.body.data).toBeInstanceOf(Array);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      expect(
+        res.body.data.every(
+          (item: { status: string }) => item.status === 'PENDING',
+        ),
+      ).toBe(true);
+      expect(res.body.data[0]).toHaveProperty('bungaPersen');
+      expect(res.body.data[0]).toHaveProperty('nasabah');
+      expect(res.body.data[0].nasabah).toHaveProperty('nama');
+      expect(res.body.data[0].nasabahId).toBeUndefined();
+      expect(res.body.pagination).toBeDefined();
+      expect(res.body.pagination.limit).toBe(20);
+      expect(res.body.pagination).toHaveProperty('nextCursor');
+      expect(typeof res.body.pagination.hasNext).toBe('boolean');
+    });
+
+    it('should sort pinjaman nominal asc and desc', async () => {
+      const ascRes = await authGet(
+        app,
+        '/api/pinjaman?sort=asc',
+        adminToken,
+      ).expect(200);
+      const ascNominal = ascRes.body.data.map(
+        (item: { jumlahPinjaman: number | string }) =>
+          Number(item.jumlahPinjaman),
+      );
+
+      for (let i = 1; i < ascNominal.length; i += 1) {
+        expect(ascNominal[i - 1]).toBeLessThanOrEqual(ascNominal[i]);
+      }
+
+      const descRes = await authGet(
+        app,
+        '/api/pinjaman?sort=desc',
+        adminToken,
+      ).expect(200);
+      const descNominal = descRes.body.data.map(
+        (item: { jumlahPinjaman: number | string }) =>
+          Number(item.jumlahPinjaman),
+      );
+
+      for (let i = 1; i < descNominal.length; i += 1) {
+        expect(descNominal[i - 1]).toBeGreaterThanOrEqual(descNominal[i]);
+      }
+    });
+
+    it('should paginate all pinjaman data', async () => {
+      const firstBatch = await authGet(
+        app,
+        '/api/pinjaman?sort=desc',
+        adminToken,
+      ).expect(200);
+
+      expect(firstBatch.body.data.length).toBeGreaterThanOrEqual(1);
+      expect(firstBatch.body.pagination.limit).toBe(20);
+      if (firstBatch.body.pagination.hasNext) {
+        expect(firstBatch.body.pagination.nextCursor).toBeDefined();
+        expect(typeof firstBatch.body.pagination.nextCursor).toBe('number');
+
+        const secondBatch = await authGet(
+          app,
+          `/api/pinjaman?sort=desc&cursor=${firstBatch.body.pagination.nextCursor}`,
+          adminToken,
+        ).expect(200);
+
+        expect(secondBatch.body.data.length).toBeGreaterThanOrEqual(1);
+        expect(secondBatch.body.data[0].id).not.toBe(
+          firstBatch.body.data[0].id,
+        );
+      }
+    });
+
+    it('should get pinjaman detail by id', async () => {
+      const res = await authGet(
+        app,
+        `/api/pinjaman/${pinjamanId}`,
+        adminToken,
+      ).expect(200);
+
+      expect(res.body.message).toBe('Berhasil mengambil detail data pinjaman');
+      expect(res.body.data).toBeInstanceOf(Array);
+      expect(res.body.data[0].id).toBe(pinjamanId);
+      expect(res.body.data[0].nasabah).toHaveProperty('nama');
+      if (res.body.data[0].verifiedBy) {
+        expect(res.body.data[0].verifiedBy).toHaveProperty('nama');
+      }
     });
   });
 
@@ -211,25 +292,15 @@ describe('Pinjaman Module (Integration)', () => {
 
   describe('Auto-approved pinjaman flow', () => {
     it('should allow pencairan of auto-approved pinjaman', async () => {
-      // Auto-approved pinjaman (≤ 3M) should be ready for pencairan
-      const detail = await authGet(
+      const res = await authPost(
         app,
-        `/api/pinjaman/${autoApprovedPinjamanId}`,
+        `/api/pinjaman/${autoApprovedPinjamanId}/pencairan`,
         adminToken,
-      ).expect(200);
+      )
+        .send({ metodePembayaran: 'CASH' })
+        .expect(201);
 
-      // If auto-approved, it should already be DISETUJUI
-      if (detail.body.data.statusPinjaman === 'DISETUJUI') {
-        const res = await authPost(
-          app,
-          `/api/pinjaman/${autoApprovedPinjamanId}/pencairan`,
-          adminToken,
-        )
-          .send({ metodePembayaran: 'CASH' })
-          .expect(201);
-
-        expect(res.body.message).toContain('berhasil');
-      }
+      expect(res.body.message).toContain('berhasil');
     });
   });
 
@@ -257,11 +328,17 @@ describe('Pinjaman Module (Integration)', () => {
 
       expect(res.body.message).toBe('Pinjaman berhasil dihapus');
 
-      await authGet(
+      const listRes = await authGet(
         app,
-        `/api/pinjaman/${toDeletePinjamanId}`,
+        `/api/pinjaman/nasabah/${nasabahId}`,
         adminToken,
-      ).expect(404);
+      ).expect(200);
+
+      expect(
+        listRes.body.data.find(
+          (item: { id: number }) => item.id === toDeletePinjamanId,
+        ),
+      ).toBeUndefined();
     });
   });
 });

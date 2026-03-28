@@ -41,46 +41,19 @@ describe('Transaksi Module (Integration)', () => {
 
   let createdTransaksiId: number;
 
-  describe('POST /api/transaksi', () => {
-    it('should create SETORAN transaksi via generic endpoint', async () => {
-      const res = await authPost(app, '/api/transaksi', adminToken)
-        .send({
-          nasabahId,
-          rekeningSimpananId: rekeningSukarelaId,
-          jenisTransaksi: 'SETORAN',
-          nominal: 500000,
-          metodePembayaran: 'CASH',
-        })
-        .expect(201);
+  beforeAll(async () => {
+    const res = await authPost(
+      app,
+      `/api/simpanan/rekening/${rekeningSukarelaId}/setoran`,
+      adminToken,
+    )
+      .send({
+        nominal: 500000,
+        metodePembayaran: 'CASH',
+      })
+      .expect(201);
 
-      expect(res.body.message).toContain('berhasil');
-      expect(res.body.data).toHaveProperty('id');
-      expect(res.body.data.jenisTransaksi).toBe('SETORAN');
-      createdTransaksiId = res.body.data.id;
-    });
-
-    it('should reject invalid jenisTransaksi', async () => {
-      await authPost(app, '/api/transaksi', adminToken)
-        .send({
-          nasabahId,
-          rekeningSimpananId: rekeningSukarelaId,
-          jenisTransaksi: 'INVALID_TYPE',
-          nominal: 100000,
-          metodePembayaran: 'CASH',
-        })
-        .expect(400);
-    });
-
-    it('should reject without nasabahId', async () => {
-      await authPost(app, '/api/transaksi', adminToken)
-        .send({
-          rekeningSimpananId: rekeningSukarelaId,
-          jenisTransaksi: 'SETORAN',
-          nominal: 100000,
-          metodePembayaran: 'CASH',
-        })
-        .expect(400);
-    });
+    createdTransaksiId = res.body.data.id;
   });
 
   describe('GET /api/transaksi', () => {
@@ -138,11 +111,12 @@ describe('Transaksi Module (Integration)', () => {
 
   describe('GET /api/transaksi/nasabah/:nasabahId', () => {
     it('should list transaksi by nasabah', async () => {
-      await authPost(app, '/api/transaksi', adminToken)
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningSukarelaId}/setoran`,
+        adminToken,
+      )
         .send({
-          nasabahId,
-          rekeningSimpananId: rekeningSukarelaId,
-          jenisTransaksi: 'SETORAN',
           nominal: 100000,
           metodePembayaran: 'CASH',
         })

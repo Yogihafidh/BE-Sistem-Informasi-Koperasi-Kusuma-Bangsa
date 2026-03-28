@@ -116,11 +116,16 @@ describe('Full Koperasi Business Flow (Integration)', () => {
   it('Step 7: Verify saldo increased', async () => {
     const res = await authGet(
       app,
-      `/api/simpanan/rekening/${rekeningSukarelaId}`,
+      `/api/simpanan/nasabah/${nasabahId}`,
       adminToken,
     ).expect(200);
 
-    const saldo = parseFloat(res.body.data.saldoBerjalan);
+    const rekeningSukarela = res.body.data.find(
+      (item: { id: number }) => item.id === rekeningSukarelaId,
+    );
+    expect(rekeningSukarela).toBeDefined();
+
+    const saldo = parseFloat(rekeningSukarela.saldoBerjalan);
     expect(saldo).toBeGreaterThanOrEqual(2000000);
   });
 
@@ -138,20 +143,6 @@ describe('Full Koperasi Business Flow (Integration)', () => {
   });
 
   it('Step 9: Pencairan pinjaman', async () => {
-    // Check if auto-approved
-    const detail = await authGet(
-      app,
-      `/api/pinjaman/${pinjamanId}`,
-      adminToken,
-    ).expect(200);
-
-    if (detail.body.data.statusPinjaman === 'MENUNGGU') {
-      // Verify first
-      await authPatch(app, `/api/pinjaman/${pinjamanId}/verifikasi`, adminToken)
-        .send({ status: 'DISETUJUI' })
-        .expect(200);
-    }
-
     const res = await authPost(
       app,
       `/api/pinjaman/${pinjamanId}/pencairan`,
@@ -208,6 +199,13 @@ describe('Full Koperasi Business Flow (Integration)', () => {
       adminToken,
     ).expect(200);
 
-    expect(res.body.data).toBeDefined();
+    expect(res.body).toBeDefined();
+    expect(res.body.periode).toEqual({ bulan, tahun });
+    expect(res.body.ringkasanKeuangan).toBeDefined();
+    expect(res.body.performance).toBeDefined();
+    expect(res.body.aktivitasTransaksi).toBeDefined();
+    expect(res.body.kreditPinjaman).toBeDefined();
+    expect(res.body.keanggotaan).toBeDefined();
+    expect(res.body.highlight).toBeDefined();
   });
 });

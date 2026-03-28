@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -23,6 +25,7 @@ import {
 } from './dto';
 import { MinioService } from '../../common/storage/minio.service';
 import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import { AuditTrailService } from '../audit/audit.service';
 
 type UploadFile = {
@@ -38,8 +41,15 @@ type UploadFiles = {
   slipGaji?: UploadFile[];
 };
 
+type RequestUser = {
+  userId: number;
+  roles: string[];
+};
+
 @Injectable()
 export class NasabahService {
+  private readonly logger = new Logger(NasabahService.name);
+
   constructor(
     private readonly nasabahRepository: NasabahRepository,
     private readonly minioService: MinioService,
@@ -75,7 +85,7 @@ export class NasabahService {
       noHp: data.noHp ?? null,
       pekerjaan: data.pekerjaan ?? null,
       instansi: data.instansi ?? null,
-      penghasilanBulanan: penghasilan != null ? Number(penghasilan) : null,
+      penghasilanBulanan: penghasilan == null ? null : Number(penghasilan),
       tanggalLahir:
         tanggalLahir instanceof Date
           ? tanggalLahir.toISOString()
@@ -101,6 +111,53 @@ export class NasabahService {
       status: item.status,
       tanggalDaftar: item.tanggalDaftar,
     };
+  }
+
+  private async toAccessibleDokumenUrls<
+    T extends {
+      dokumen?: Array<{
+        id: number;
+        nasabahId: number;
+        jenisDokumen: JenisDokumen;
+        fileKey: string;
+        uploadedAt: Date;
+      }>;
+    },
+  >(data: T): Promise<T> {
+    if (!data.dokumen || data.dokumen.length === 0) {
+      return data;
+    }
+
+    const dokumen = await Promise.all(
+      data.dokumen.map(async (item) => ({
+        id: item.id,
+        nasabahId: item.nasabahId,
+        jenisDokumen: item.jenisDokumen,
+        fileUrl: await this.minioService.buildAccessibleUrlFromStoredUrl(
+          item.fileKey,
+        ),
+        uploadedAt: item.uploadedAt,
+      })),
+    );
+
+    return {
+      ...data,
+      dokumen,
+    };
+  }
+
+  private isSuperAdmin(user: RequestUser) {
+    return user.roles.some(
+      (role) => role.trim().toLowerCase() === 'super admin',
+    );
+  }
+
+  private isAdmin(user: RequestUser) {
+    return user.roles.some((role) => role.trim().toLowerCase() === 'admin');
+  }
+
+  private isAdminOrSuperAdmin(user: RequestUser) {
+    return this.isAdmin(user) || this.isSuperAdmin(user);
   }
 
   private async generateNomorAnggota() {
@@ -197,32 +254,58 @@ export class NasabahService {
     };
   }
 
-  async getAllNasabah(cursor?: number) {
-    const { data, nextCursor } = await this.nasabahRepository.findAllNasabah(
-      cursor,
-      DEFAULT_PAGE_SIZE,
-    );
+  async getAllNasabah(
+    args: { after?: number; before?: number },
+    status?: NasabahStatus,
+  ) {
+    validateBidirectionalPaginationParams(args.after, args.before);
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
+      await this.nasabahRepository.findAllNasabah(
+        {
+          after: args.after,
+          before: args.before,
+          take: DEFAULT_PAGE_SIZE,
+        },
+        status,
+      );
 
     return {
       message: 'Berhasil mengambil data nasabah',
       data: data.map((item) => this.toNasabahListDto(item)),
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }
 
-  async getNasabahById(id: number) {
+  async getNasabahById(id: number, user: RequestUser) {
     const nasabah = await this.nasabahRepository.findNasabahById(id);
     if (!nasabah) {
       throw new NotFoundException('Nasabah tidak ditemukan');
     }
 
+    if (!this.isSuperAdmin(user)) {
+      const pegawaiPenanggungJawab =
+        await this.nasabahRepository.findPegawaiById(nasabah.pegawaiId);
+
+      if (pegawaiPenanggungJawab?.userId !== user.userId) {
+        throw new ForbiddenException(
+          'Anda tidak berhak mengakses dokumen nasabah ini',
+        );
+      }
+    }
+
+    const nasabahWithAccessibleDokumen =
+      await this.toAccessibleDokumenUrls(nasabah);
+
     return {
       message: 'Berhasil mengambil data nasabah',
-      data: nasabah as NasabahDetailDto,
+      data: nasabahWithAccessibleDokumen as unknown as NasabahDetailDto,
     };
   }
 
@@ -312,22 +395,25 @@ export class NasabahService {
     };
   }
 
-  async deleteNasabah(id: number) {
-    const nasabah = await this.nasabahRepository.findNasabahById(id);
+  async uploadDokumen(
+    nasabahId: number,
+    files: UploadFiles,
+    user: RequestUser,
+  ) {
+    const nasabah = await this.nasabahRepository.findNasabahById(nasabahId);
     if (!nasabah) {
       throw new NotFoundException('Nasabah tidak ditemukan');
     }
 
-    await this.nasabahRepository.softDeleteNasabah(id);
-    return {
-      message: 'Nasabah berhasil dihapus',
-    };
-  }
+    if (!this.isSuperAdmin(user)) {
+      const pegawaiPenanggungJawab =
+        await this.nasabahRepository.findPegawaiById(nasabah.pegawaiId);
 
-  async uploadDokumen(nasabahId: number, files: UploadFiles) {
-    const nasabah = await this.nasabahRepository.findNasabahById(nasabahId);
-    if (!nasabah) {
-      throw new NotFoundException('Nasabah tidak ditemukan');
+      if (pegawaiPenanggungJawab?.userId !== user.userId) {
+        throw new ForbiddenException(
+          'Anda tidak berhak mengunggah dokumen untuk nasabah ini',
+        );
+      }
     }
 
     const ktpFile = files.ktp?.[0];
@@ -389,19 +475,159 @@ export class NasabahService {
         item.file.mimetype,
       );
 
-      const fileUrl = this.minioService.buildPublicUrl(bucket, objectName);
+      const fileKey = this.minioService.buildObjectKey(bucket, objectName);
       const dokumen = await this.nasabahRepository.createNasabahDokumen({
         nasabahId,
         jenisDokumen: item.jenis,
-        fileUrl,
+        fileKey,
       });
 
-      results.push(dokumen);
+      const accessibleFileUrl = await this.minioService.buildAccessibleUrl(
+        bucket,
+        objectName,
+      );
+
+      results.push({
+        id: dokumen.id,
+        nasabahId: dokumen.nasabahId,
+        jenisDokumen: dokumen.jenisDokumen,
+        fileUrl: accessibleFileUrl,
+        uploadedAt: dokumen.uploadedAt,
+      });
     }
 
     return {
       message: 'Upload dokumen berhasil',
       data: results,
+    };
+  }
+
+  async updateDokumenNasabah(
+    nasabahId: number,
+    jenisDokumen: JenisDokumen,
+    file: UploadFile,
+    user: RequestUser,
+  ) {
+    if (!file) {
+      throw new BadRequestException('File dokumen wajib diunggah');
+    }
+
+    const nasabah = await this.nasabahRepository.findNasabahById(nasabahId);
+    if (!nasabah) {
+      throw new NotFoundException('Nasabah tidak ditemukan');
+    }
+
+    if (!this.isSuperAdmin(user)) {
+      const pegawaiPenanggungJawab =
+        await this.nasabahRepository.findPegawaiById(nasabah.pegawaiId);
+
+      if (pegawaiPenanggungJawab?.userId !== user.userId) {
+        throw new ForbiddenException(
+          'Anda tidak berhak memperbarui dokumen nasabah ini',
+        );
+      }
+    }
+
+    const allowedMime =
+      jenisDokumen === JenisDokumen.SLIP_GAJI
+        ? ['application/pdf']
+        : ['image/jpeg', 'image/png', 'application/pdf'];
+    const maxSizeMb = jenisDokumen === JenisDokumen.SLIP_GAJI ? 5 : 2;
+    this.validateFile(file, allowedMime, maxSizeMb);
+
+    const bucket = this.minioService.getBucketNameForJenis(jenisDokumen);
+    const safeName = file.originalname.replaceAll(/\s+/g, '-');
+    const objectName = `nasabah/${nasabahId}/${jenisDokumen.toLowerCase()}-${Date.now()}-${safeName}`;
+
+    await this.minioService.uploadObject(
+      bucket,
+      objectName,
+      file.buffer,
+      file.mimetype,
+    );
+
+    const existing = await this.nasabahRepository.findNasabahDokumenByJenis(
+      nasabahId,
+      jenisDokumen,
+    );
+
+    const oldStoredRef = existing?.fileKey;
+    if (oldStoredRef) {
+      try {
+        await this.minioService.deleteObjectByStoredRef(oldStoredRef);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `Gagal menghapus file lama MinIO saat update dokumen nasabah ${nasabahId}: ${message}`,
+        );
+      }
+    }
+
+    const fileKey = this.minioService.buildObjectKey(bucket, objectName);
+    const updatedDokumen = existing
+      ? await this.nasabahRepository.updateNasabahDokumen(existing.id, {
+          fileKey,
+          uploadedAt: new Date(),
+        })
+      : await this.nasabahRepository.createNasabahDokumen({
+          nasabahId,
+          jenisDokumen,
+          fileKey,
+        });
+
+    const accessibleFileUrl = await this.minioService.buildAccessibleUrl(
+      bucket,
+      objectName,
+    );
+
+    return {
+      message: 'Dokumen nasabah berhasil diperbarui',
+      data: {
+        id: updatedDokumen.id,
+        nasabahId: updatedDokumen.nasabahId,
+        jenisDokumen: updatedDokumen.jenisDokumen,
+        fileUrl: accessibleFileUrl,
+        uploadedAt: updatedDokumen.uploadedAt,
+      },
+    };
+  }
+
+  async deleteDokumenNasabah(dokumenId: number, user: RequestUser) {
+    const dokumen =
+      await this.nasabahRepository.findNasabahDokumenById(dokumenId);
+    if (!dokumen) {
+      throw new NotFoundException('Dokumen nasabah tidak ditemukan');
+    }
+
+    if (dokumen.deletedAt) {
+      throw new BadRequestException('Dokumen nasabah sudah dihapus');
+    }
+
+    if (!this.isAdminOrSuperAdmin(user)) {
+      const pegawaiRequester = await this.nasabahRepository.findPegawaiByUserId(
+        user.userId,
+      );
+
+      if (pegawaiRequester?.id !== dokumen.nasabah.pegawaiId) {
+        throw new ForbiddenException(
+          'Anda tidak berhak menghapus dokumen nasabah ini',
+        );
+      }
+    }
+
+    try {
+      await this.minioService.deleteObjectByStoredRef(dokumen.fileKey);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Gagal menghapus file MinIO untuk dokumen ${dokumenId}: ${message}`,
+      );
+    }
+
+    await this.nasabahRepository.softDeleteNasabahDokumen(dokumenId);
+
+    return {
+      message: 'Dokumen nasabah berhasil dihapus',
     };
   }
 
@@ -429,10 +655,6 @@ export class NasabahService {
     const nasabah = await this.nasabahRepository.findNasabahById(id);
     if (!nasabah) {
       throw new NotFoundException('Nasabah tidak ditemukan');
-    }
-
-    if (nasabah.status !== NasabahStatus.PENDING) {
-      throw new BadRequestException('Nasabah sudah diverifikasi');
     }
 
     if (

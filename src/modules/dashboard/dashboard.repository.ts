@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  NasabahStatus,
   JenisTransaksi,
   PinjamanStatus,
   Prisma,
@@ -9,6 +10,14 @@ import {
 @Injectable()
 export class DashboardRepository {
   constructor(private readonly prisma: PrismaClient) {}
+
+  private monthStart(date: Date) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+  }
+
+  private nextMonthStart(date: Date) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
+  }
 
   private buildTransaksiWhere(args: {
     jenisTransaksi?: JenisTransaksi | JenisTransaksi[];
@@ -35,6 +44,26 @@ export class DashboardRepository {
     }
 
     return where;
+  }
+
+  countTransaksi(args: { tanggalFrom?: Date; tanggalTo?: Date }) {
+    return this.prisma.transaksi.count({
+      where: this.buildTransaksiWhere({
+        tanggalFrom: args.tanggalFrom,
+        tanggalTo: args.tanggalTo,
+      }),
+    });
+  }
+
+  groupTransaksiByJenis(args: { tanggalFrom: Date; tanggalTo: Date }) {
+    return this.prisma.transaksi.groupBy({
+      by: ['jenisTransaksi'],
+      where: this.buildTransaksiWhere({
+        tanggalFrom: args.tanggalFrom,
+        tanggalTo: args.tanggalTo,
+      }),
+      _sum: { nominal: true },
+    });
   }
 
   sumTransaksiNominal(args: {
@@ -82,10 +111,59 @@ export class DashboardRepository {
         deletedAt: null,
         status: PinjamanStatus.DISETUJUI,
         sisaPinjaman: { gt: new Prisma.Decimal(0) },
+        nasabah: {
+          deletedAt: null,
+        },
       },
-      select: { id: true, sisaPinjaman: true },
+      select: {
+        id: true,
+        sisaPinjaman: true,
+        nasabah: {
+          select: {
+            nama: true,
+          },
+        },
+      },
       orderBy: { sisaPinjaman: 'desc' },
       take,
+    });
+  }
+
+  countNasabahTotal() {
+    return this.prisma.nasabah.count({ where: { deletedAt: null } });
+  }
+
+  countNasabahAktif() {
+    return this.prisma.nasabah.count({
+      where: {
+        deletedAt: null,
+        status: NasabahStatus.AKTIF,
+      },
+    });
+  }
+
+  countNasabahBaru(args: { tanggalFrom: Date; tanggalTo: Date }) {
+    return this.prisma.nasabah.count({
+      where: {
+        deletedAt: null,
+        tanggalDaftar: {
+          gte: args.tanggalFrom,
+          lte: args.tanggalTo,
+        },
+      },
+    });
+  }
+
+  countNasabahKeluar(args: { tanggalFrom: Date; tanggalTo: Date }) {
+    return this.prisma.nasabah.count({
+      where: {
+        deletedAt: null,
+        status: NasabahStatus.NONAKTIF,
+        updatedAt: {
+          gte: args.tanggalFrom,
+          lte: args.tanggalTo,
+        },
+      },
     });
   }
 
@@ -93,9 +171,93 @@ export class DashboardRepository {
     return this.prisma.nasabah.count({ where });
   }
 
-  findLaporanKeuanganByPeriode(bulan: number, tahun: number) {
-    return this.prisma.laporanKeuangan.findFirst({
-      where: { periodeBulan: bulan, periodeTahun: tahun },
-    });
+  getCashflowTrend(args: { startMonth: Date; endMonth: Date }) {
+    const start = this.monthStart(args.startMonth);
+    const endExclusive = this.nextMonthStart(args.endMonth);
+
+    return this.prisma.$queryRaw<
+      Array<{
+        year: number;
+        month: number;
+        kasMasuk: Prisma.Decimal | null;
+        kasKeluar: Prisma.Decimal | null;
+      }>
+    >(
+      Prisma.sql`
+        SELECT
+          EXTRACT(YEAR FROM date_trunc('month', "tanggal"))::int AS year,
+          EXTRACT(MONTH FROM date_trunc('month', "tanggal"))::int AS month,
+          SUM(
+            CASE
+              WHEN "jenisTransaksi" IN (
+                ${JenisTransaksi.SETORAN}::"JenisTransaksi",
+                ${JenisTransaksi.ANGSURAN}::"JenisTransaksi"
+              ) THEN "nominal"
+              ELSE 0
+            END
+          ) AS "kasMasuk",
+          SUM(
+            CASE
+              WHEN "jenisTransaksi" IN (
+                ${JenisTransaksi.PENARIKAN}::"JenisTransaksi",
+                ${JenisTransaksi.PENCAIRAN}::"JenisTransaksi"
+              ) THEN "nominal"
+              ELSE 0
+            END
+          ) AS "kasKeluar"
+        FROM "Transaksi"
+        WHERE "deletedAt" IS NULL
+          AND "tanggal" >= ${start}
+          AND "tanggal" < ${endExclusive}
+        GROUP BY date_trunc('month', "tanggal")
+        ORDER BY date_trunc('month', "tanggal") ASC
+      `,
+    );
+  }
+
+  getKeanggotaanTrend(args: { startMonth: Date; endMonth: Date }) {
+    const start = this.monthStart(args.startMonth);
+    const endExclusive = this.nextMonthStart(args.endMonth);
+
+    return this.prisma.$queryRaw<
+      Array<{
+        year: number;
+        month: number;
+        anggotaBaru: bigint;
+        anggotaKeluar: bigint;
+      }>
+    >(
+      Prisma.sql`
+        WITH anggota_baru AS (
+          SELECT
+            date_trunc('month', "tanggalDaftar") AS m,
+            COUNT(*)::bigint AS anggota_baru
+          FROM "Nasabah"
+          WHERE "deletedAt" IS NULL
+            AND "tanggalDaftar" >= ${start}
+            AND "tanggalDaftar" < ${endExclusive}
+          GROUP BY date_trunc('month', "tanggalDaftar")
+        ),
+        anggota_keluar AS (
+          SELECT
+            date_trunc('month', "updatedAt") AS m,
+            COUNT(*)::bigint AS anggota_keluar
+          FROM "Nasabah"
+          WHERE "deletedAt" IS NULL
+            AND "status" = ${NasabahStatus.NONAKTIF}::"NasabahStatus"
+            AND "updatedAt" >= ${start}
+            AND "updatedAt" < ${endExclusive}
+          GROUP BY date_trunc('month', "updatedAt")
+        )
+        SELECT
+          EXTRACT(YEAR FROM COALESCE(b.m, k.m))::int AS year,
+          EXTRACT(MONTH FROM COALESCE(b.m, k.m))::int AS month,
+          COALESCE(b.anggota_baru, 0)::bigint AS "anggotaBaru",
+          COALESCE(k.anggota_keluar, 0)::bigint AS "anggotaKeluar"
+        FROM anggota_baru b
+        FULL OUTER JOIN anggota_keluar k ON b.m = k.m
+        ORDER BY COALESCE(b.m, k.m) ASC
+      `,
+    );
   }
 }

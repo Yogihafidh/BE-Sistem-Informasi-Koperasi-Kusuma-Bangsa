@@ -13,6 +13,7 @@ import {
   TogglePegawaiStatusDto,
 } from './dto';
 import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import { AuditTrailService } from '../audit/audit.service';
 
 @Injectable()
@@ -110,19 +111,25 @@ export class PegawaiService {
     };
   }
 
-  async getAllPegawai(cursor?: number) {
-    const { data, nextCursor } = await this.pegawaiRepository.findAllPegawai(
-      cursor,
-      DEFAULT_PAGE_SIZE,
-    );
+  async getAllPegawai(args: { after?: number; before?: number }) {
+    validateBidirectionalPaginationParams(args.after, args.before);
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
+      await this.pegawaiRepository.findAllPegawai({
+        after: args.after,
+        before: args.before,
+        take: DEFAULT_PAGE_SIZE,
+      });
 
     return {
       message: 'Berhasil mengambil data pegawai',
       data: data.map((item) => this.toPegawaiListDto(item)),
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }

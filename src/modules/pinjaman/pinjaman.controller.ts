@@ -23,6 +23,7 @@ import { PinjamanService } from './pinjaman.service';
 import {
   AngsuranPinjamanDto,
   CreatePinjamanDto,
+  ListPinjamanQueryDto,
   PencairanPinjamanDto,
   VerifikasiPinjamanDto,
 } from './dto';
@@ -33,6 +34,7 @@ import {
   ApiBadRequestExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 import type { Request } from 'express';
 
@@ -41,6 +43,166 @@ import type { Request } from 'express';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class PinjamanController {
   constructor(private readonly pinjamanService: PinjamanService) {}
+
+  @Get()
+  @ApiBearerAuth('JWT-auth')
+  @Permissions('pinjaman.read')
+  @ApiOperation({
+    summary: 'Dapatkan semua pinjaman',
+    description:
+      'Mendukung filter berdasarkan status, sorting nominal pinjaman, dan pagination dua arah.',
+  })
+  @ApiQuery({
+    name: 'after',
+    required: false,
+    example: 130,
+    description: 'Arah maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    example: 130,
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['PENDING', 'DISETUJUI', 'DITOLAK', 'LUNAS'],
+    description: 'Filter status pinjaman',
+  })
+  @ApiQuery({
+    name: 'sort',
+    required: false,
+    enum: ['asc', 'desc'],
+    description: 'Urutkan nominal pinjaman (default: desc)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Daftar pinjaman berhasil diambil',
+    content: {
+      'application/json': {
+        examples: {
+          default: {
+            summary: 'Contoh default list pinjaman',
+            value: {
+              message: 'Berhasil mengambil semua data pinjaman',
+              data: [
+                {
+                  id: 101,
+                  jumlahPinjaman: '2000000',
+                  bungaPersen: '1.5',
+                  tenorBulan: 6,
+                  status: 'PENDING',
+                  nasabah: {
+                    nama: 'Yono Sebastian',
+                  },
+                },
+              ],
+              pagination: {
+                limit: 20,
+                nextCursor: 101,
+                prevCursor: 121,
+                hasNext: true,
+                hasPrev: true,
+              },
+            },
+          },
+          pendingForPimpinan: {
+            summary: 'Contoh untuk pimpinan: pinjaman belum terverifikasi',
+            value: {
+              message: 'Berhasil mengambil semua data pinjaman',
+              data: [
+                {
+                  id: 130,
+                  jumlahPinjaman: '15000000',
+                  bungaPersen: '2.5',
+                  tenorBulan: 24,
+                  status: 'PENDING',
+                  nasabah: {
+                    nama: 'Yono Sebastian',
+                  },
+                },
+                {
+                  id: 129,
+                  jumlahPinjaman: '7500000',
+                  bungaPersen: '2.5',
+                  tenorBulan: 12,
+                  status: 'PENDING',
+                  nasabah: {
+                    nama: 'Siti Aminah',
+                  },
+                },
+              ],
+              pagination: {
+                limit: 20,
+                nextCursor: null,
+                prevCursor: 129,
+                hasNext: false,
+                hasPrev: true,
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiAuthErrors()
+  listAllPinjaman(@Query() query: ListPinjamanQueryDto) {
+    validateBidirectionalPaginationParams(query.after, query.before);
+    return this.pinjamanService.listAllPinjaman(query);
+  }
+
+  @Get(':id')
+  @ApiBearerAuth('JWT-auth')
+  @Permissions('pinjaman.read')
+  @ApiOperation({ summary: 'Dapatkan detail pinjaman berdasarkan ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Detail pinjaman berhasil diambil',
+    content: {
+      'application/json': {
+        example: {
+          message: 'Berhasil mengambil detail data pinjaman',
+          data: [
+            {
+              id: 37,
+              jumlahPinjaman: '5000000',
+              bungaPersen: '2.5',
+              tenorBulan: 12,
+              sisaPinjaman: '0',
+              status: 'DISETUJUI',
+              tanggalPersetujuan: '2026-03-27T10:15:24.385Z',
+              nasabah: {
+                pegawaiId: 125,
+                nomorAnggota: 'AGT-20260310-3079',
+                nama: 'Yono Sebastian',
+                nik: '3201010101010007',
+                alamat: 'Jl. Kenanga No. TEST, Bandung',
+                noHp: '081234567890',
+                pekerjaan: 'Wiraswasta',
+                instansi: 'PT Maju Jaya',
+                penghasilanBulanan: '6000000',
+                tanggalLahir: '1995-08-17T00:00:00.000Z',
+                tanggalDaftar: '2026-02-05T00:00:00.000Z',
+                status: 'AKTIF',
+                catatan: 'Dokumen valid',
+              },
+              verifiedBy: {
+                nama: 'Super Admin Koperasi',
+                jabatan: 'Super Administrator',
+                noHp: '081200000001',
+              },
+            },
+          ],
+        },
+      },
+    },
+  })
+  @ApiNotFoundExample('Pinjaman tidak ditemukan')
+  @ApiAuthErrors()
+  getPinjamanDetail(@Param('id', ParseIntPipe) id: number) {
+    return this.pinjamanService.getPinjamanDetail(id);
+  }
 
   @Post()
   @ApiBearerAuth('JWT-auth')
@@ -96,47 +258,19 @@ export class PinjamanController {
     return this.pinjamanService.createPinjaman(dto, user.userId, request.ip);
   }
 
-  @Get(':id')
-  @ApiBearerAuth('JWT-auth')
-  @Permissions('pinjaman.read')
-  @ApiOperation({ summary: 'Dapatkan detail pinjaman' })
-  @ApiResponse({
-    status: 200,
-    description: 'Detail pinjaman berhasil diambil',
-    content: {
-      'application/json': {
-        example: {
-          message: 'Berhasil mengambil detail pinjaman',
-          data: {
-            id: 101,
-            nasabahId: 1,
-            jumlahPinjaman: 5000000,
-            bungaPersen: 1.5,
-            tenorBulan: 12,
-            sisaPinjaman: 5000000,
-            status: 'DISETUJUI',
-            verifiedById: 2,
-            tanggalPersetujuan: '2026-03-10T08:00:00.000Z',
-          },
-        },
-      },
-    },
-  })
-  @ApiNotFoundExample('Pinjaman tidak ditemukan')
-  @ApiAuthErrors()
-  getPinjamanById(@Param('id', ParseIntPipe) id: number) {
-    return this.pinjamanService.getPinjamanById(id);
-  }
-
   @Get('nasabah/:nasabahId')
   @ApiBearerAuth('JWT-auth')
   @Permissions('pinjaman.read')
   @ApiOperation({ summary: 'Dapatkan pinjaman per nasabah' })
   @ApiQuery({
-    name: 'cursor',
+    name: 'after',
     required: false,
-    description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiResponse({
     status: 200,
@@ -157,8 +291,10 @@ export class PinjamanController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -167,9 +303,14 @@ export class PinjamanController {
   @ApiAuthErrors()
   listPinjamanByNasabah(
     @Param('nasabahId', ParseIntPipe) nasabahId: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
   ) {
-    return this.pinjamanService.listPinjamanByNasabah(nasabahId, cursor);
+    validateBidirectionalPaginationParams(after, before);
+    return this.pinjamanService.listPinjamanByNasabah(nasabahId, {
+      after,
+      before,
+    });
   }
 
   @Patch(':id/verifikasi')
@@ -298,10 +439,14 @@ export class PinjamanController {
   @Permissions('pinjaman.read')
   @ApiOperation({ summary: 'Histori transaksi pinjaman' })
   @ApiQuery({
-    name: 'cursor',
+    name: 'after',
     required: false,
-    description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiResponse({
     status: 200,
@@ -328,8 +473,10 @@ export class PinjamanController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -339,9 +486,14 @@ export class PinjamanController {
   @ApiAuthErrors()
   listTransaksiByPinjaman(
     @Param('id', ParseIntPipe) id: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
   ) {
-    return this.pinjamanService.listTransaksiByPinjaman(id, cursor);
+    validateBidirectionalPaginationParams(after, before);
+    return this.pinjamanService.listTransaksiByPinjaman(id, {
+      after,
+      before,
+    });
   }
 
   @Delete(':id')
@@ -364,7 +516,10 @@ export class PinjamanController {
   })
   @ApiNotFoundExample('Pinjaman tidak ditemukan')
   @ApiAuthErrors()
-  softDeletePinjaman(@Param('id', ParseIntPipe) id: number) {
-    return this.pinjamanService.softDeletePinjaman(id);
+  softDeletePinjaman(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+  ) {
+    return this.pinjamanService.softDeletePinjaman(id, user.userId);
   }
 }

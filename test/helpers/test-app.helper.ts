@@ -4,20 +4,45 @@ import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/http-exception.filter';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import Keyv from 'keyv';
+import KeyvRedis from '@keyv/redis';
 
-let prisma: PrismaClient;
+let prisma: PrismaClient | undefined;
+let cacheClient: Keyv | undefined;
 
 export function getPrisma(): PrismaClient {
-  if (!prisma) {
-    prisma = new PrismaClient();
-  }
+  prisma ??= new PrismaClient();
   return prisma;
+}
+
+function getCacheClient(): Keyv {
+  if (!cacheClient) {
+    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    cacheClient = new Keyv({ store: new KeyvRedis(redisUrl) });
+  }
+
+  return cacheClient;
+}
+
+async function cleanupCache(): Promise<void> {
+  try {
+    await getCacheClient().clear();
+  } catch {
+    // Ignore cache cleanup failure in tests to avoid masking real test assertions.
+  }
+}
+
+export async function clearTestCache(): Promise<void> {
+  await cleanupCache();
 }
 
 export async function createTestApp(): Promise<INestApplication> {
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  })
+    .overrideProvider(PrismaClient)
+    .useValue(getPrisma())
+    .compile();
 
   const app = moduleFixture.createNestApplication();
 
@@ -39,6 +64,8 @@ export async function createTestApp(): Promise<INestApplication> {
 
 export async function cleanupDatabase(p?: PrismaClient): Promise<void> {
   const client = p ?? getPrisma();
+
+  await cleanupCache();
 
   // Truncate all tables in the correct order (respecting FK constraints)
   await client.$executeRawUnsafe(`
@@ -81,7 +108,6 @@ export async function seedDatabase(p?: PrismaClient): Promise<void> {
     { code: 'nasabah.read', description: 'Read nasabah' },
     { code: 'nasabah.update', description: 'Update nasabah' },
     { code: 'nasabah.verify', description: 'Verify nasabah' },
-    { code: 'nasabah.delete', description: 'Delete nasabah' },
     { code: 'pegawai.create', description: 'Create pegawai' },
     { code: 'pegawai.read', description: 'Read pegawai' },
     { code: 'pegawai.update', description: 'Update pegawai' },
@@ -94,7 +120,6 @@ export async function seedDatabase(p?: PrismaClient): Promise<void> {
     { code: 'pinjaman.verify', description: 'Verifikasi pinjaman' },
     { code: 'pinjaman.cairkan', description: 'Pencairan pinjaman' },
     { code: 'pinjaman.angsuran', description: 'Bayar angsuran pinjaman' },
-    { code: 'transaksi.create', description: 'Create transaksi' },
     { code: 'transaksi.read', description: 'Read transaksi' },
     { code: 'transaksi.process', description: 'Process transaksi' },
     { code: 'laporan.read', description: 'Read laporan' },
@@ -234,7 +259,6 @@ export async function seedDatabase(p?: PrismaClient): Promise<void> {
     'pinjaman.read',
     'pinjaman.cairkan',
     'pinjaman.angsuran',
-    'transaksi.create',
     'transaksi.read',
     'dashboard.read',
   ];
@@ -329,6 +353,19 @@ export async function seedDatabase(p?: PrismaClient): Promise<void> {
 
 export async function closeTestApp(app: INestApplication): Promise<void> {
   await app.close();
-  const client = getPrisma();
-  await client.$disconnect();
+
+  if (prisma) {
+    await prisma.$disconnect();
+    prisma = undefined;
+  }
+
+  if (cacheClient) {
+    const disconnect = (
+      cacheClient as unknown as { disconnect?: () => Promise<void> }
+    ).disconnect;
+    if (disconnect) {
+      await disconnect.call(cacheClient);
+    }
+    cacheClient = undefined;
+  }
 }

@@ -15,6 +15,8 @@ import { PinjamanRepository } from './pinjaman.repository';
 import {
   AngsuranPinjamanDto,
   CreatePinjamanDto,
+  ListPinjamanQueryDto,
+  PinjamanNominalSort,
   PencairanPinjamanDto,
   VerifikasiPinjamanDto,
 } from './dto';
@@ -24,6 +26,7 @@ import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
 import { AuditTrailService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 
 @Injectable()
 export class PinjamanService {
@@ -136,34 +139,177 @@ export class PinjamanService {
     };
   }
 
-  async getPinjamanById(id: number) {
-    const pinjaman = await this.pinjamanRepository.findPinjamanById(id);
+  async listPinjamanByNasabah(
+    nasabahId: number,
+    args: { after?: number; before?: number },
+  ) {
+    validateBidirectionalPaginationParams(args.after, args.before);
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
+      await this.pinjamanRepository.listPinjamanByNasabah({
+        nasabahId,
+        page: {
+          after: args.after,
+          before: args.before,
+          take: DEFAULT_PAGE_SIZE,
+        },
+      });
+
+    const sanitizedData = data.map(({ verifiedById, ...item }) => item);
+
+    return {
+      message: 'Berhasil mengambil data pinjaman nasabah',
+      data: sanitizedData,
+      pagination: {
+        nextCursor,
+        prevCursor,
+        limit: DEFAULT_PAGE_SIZE,
+        hasNext,
+        hasPrev,
+      },
+    };
+  }
+
+  async listAllPinjaman(query: ListPinjamanQueryDto) {
+    const limit = DEFAULT_PAGE_SIZE;
+    const after = query.after;
+    const before = query.before;
+
+    validateBidirectionalPaginationParams(after, before);
+
+    let cursorNominal: Prisma.Decimal | undefined;
+    let cursorId: number | undefined;
+
+    if (typeof after === 'number' || typeof before === 'number') {
+      cursorId = (after ?? before) as number;
+      const anchor = await this.pinjamanRepository.findPinjamanCursorAnchor(
+        cursorId,
+        query.status,
+      );
+
+      if (!anchor) {
+        throw new BadRequestException('Penanda halaman tidak valid');
+      }
+
+      cursorNominal = anchor.jumlahPinjaman;
+    }
+
+    const rows = await this.pinjamanRepository.listAllPinjaman({
+      status: query.status,
+      nominalSort:
+        query.sort === PinjamanNominalSort.ASC
+          ? Prisma.SortOrder.asc
+          : Prisma.SortOrder.desc,
+      page: {
+        after,
+        before,
+        take: limit,
+      },
+      cursorNominal,
+      cursorId,
+    });
+
+    const sortedRows = typeof before === 'number' ? [...rows].reverse() : rows;
+
+    let nextCursor: number | null = null;
+    let prevCursor: number | null = null;
+    let hasNext = false;
+    let hasPrev = false;
+
+    if (sortedRows.length > 0) {
+      prevCursor = sortedRows[0].id;
+      const lastRow = sortedRows.at(-1)!;
+      nextCursor = lastRow.id;
+
+      const nominalSort =
+        query.sort === PinjamanNominalSort.ASC
+          ? Prisma.SortOrder.asc
+          : Prisma.SortOrder.desc;
+
+      const [prevItem, nextItem] = await Promise.all([
+        this.pinjamanRepository.findPinjamanPrevByNominalBoundary({
+          status: query.status,
+          nominalSort,
+          nominal: sortedRows[0].jumlahPinjaman,
+          id: sortedRows[0].id,
+        }),
+        this.pinjamanRepository.findPinjamanNextByNominalBoundary({
+          status: query.status,
+          nominalSort,
+          nominal: lastRow.jumlahPinjaman,
+          id: lastRow.id,
+        }),
+      ]);
+
+      hasPrev = Boolean(prevItem);
+      hasNext = Boolean(nextItem);
+    }
+
+    const simplifiedData = sortedRows.map((item) => ({
+      id: item.id,
+      jumlahPinjaman: String(item.jumlahPinjaman),
+      bungaPersen: String(item.bungaPersen),
+      tenorBulan: item.tenorBulan,
+      status: item.status,
+      nasabah: {
+        nama: item.nasabah.nama,
+      },
+    }));
+
+    return {
+      message: 'Berhasil mengambil semua data pinjaman',
+      data: simplifiedData,
+      pagination: {
+        limit,
+        nextCursor,
+        prevCursor,
+        hasNext,
+        hasPrev,
+      },
+    };
+  }
+
+  async getPinjamanDetail(id: number) {
+    const pinjaman = await this.pinjamanRepository.findPinjamanDetailById(id);
     if (!pinjaman) {
       throw new NotFoundException('Pinjaman tidak ditemukan');
     }
 
     return {
-      message: 'Berhasil mengambil detail pinjaman',
-      data: pinjaman,
-    };
-  }
-
-  async listPinjamanByNasabah(nasabahId: number, cursor?: number) {
-    const { data, nextCursor } =
-      await this.pinjamanRepository.listPinjamanByNasabah({
-        nasabahId,
-        cursor,
-        take: DEFAULT_PAGE_SIZE,
-      });
-
-    return {
-      message: 'Berhasil mengambil data pinjaman nasabah',
-      data,
-      pagination: {
-        nextCursor,
-        limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
-      },
+      message: 'Berhasil mengambil detail data pinjaman',
+      data: [
+        {
+          id: pinjaman.id,
+          jumlahPinjaman: String(pinjaman.jumlahPinjaman),
+          bungaPersen: String(pinjaman.bungaPersen),
+          tenorBulan: pinjaman.tenorBulan,
+          sisaPinjaman: String(pinjaman.sisaPinjaman),
+          status: pinjaman.status,
+          tanggalPersetujuan: pinjaman.tanggalPersetujuan,
+          nasabah: {
+            pegawaiId: pinjaman.nasabah.pegawaiId,
+            nomorAnggota: pinjaman.nasabah.nomorAnggota,
+            nama: pinjaman.nasabah.nama,
+            nik: pinjaman.nasabah.nik,
+            alamat: pinjaman.nasabah.alamat,
+            noHp: pinjaman.nasabah.noHp,
+            pekerjaan: pinjaman.nasabah.pekerjaan,
+            instansi: pinjaman.nasabah.instansi,
+            penghasilanBulanan: String(pinjaman.nasabah.penghasilanBulanan),
+            tanggalLahir: pinjaman.nasabah.tanggalLahir,
+            tanggalDaftar: pinjaman.nasabah.tanggalDaftar,
+            status: pinjaman.nasabah.status,
+            catatan: pinjaman.nasabah.catatan,
+          },
+          verifiedBy: pinjaman.verifiedBy
+            ? {
+                nama: pinjaman.verifiedBy.nama,
+                jabatan: pinjaman.verifiedBy.jabatan,
+                noHp: pinjaman.verifiedBy.noHp,
+              }
+            : null,
+        },
+      ],
     };
   }
 
@@ -347,17 +493,25 @@ export class PinjamanService {
     );
   }
 
-  async listTransaksiByPinjaman(pinjamanId: number, cursor?: number) {
+  async listTransaksiByPinjaman(
+    pinjamanId: number,
+    args: { after?: number; before?: number },
+  ) {
     const pinjaman = await this.pinjamanRepository.findPinjamanById(pinjamanId);
     if (!pinjaman) {
       throw new NotFoundException('Pinjaman tidak ditemukan');
     }
 
-    const { data, nextCursor } =
+    validateBidirectionalPaginationParams(args.after, args.before);
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByPinjaman({
         pinjamanId,
-        cursor,
-        take: DEFAULT_PAGE_SIZE,
+        page: {
+          after: args.after,
+          before: args.before,
+          take: DEFAULT_PAGE_SIZE,
+        },
       });
 
     return {
@@ -365,20 +519,38 @@ export class PinjamanService {
       data,
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }
 
-  async softDeletePinjaman(id: number) {
+  async softDeletePinjaman(id: number, userId: number) {
     const pinjaman = await this.pinjamanRepository.findPinjamanById(id);
     if (!pinjaman) {
       throw new NotFoundException('Pinjaman tidak ditemukan');
     }
 
     await this.pinjamanRepository.softDeletePinjaman(id);
-
+    await this.auditTrailService.log({
+      action: 'DELETE' as AuditAction,
+      userId,
+      entityName: 'pinjaman',
+      entityId: pinjaman.id,
+      before: {
+        id: pinjaman.id,
+        nasabahId: pinjaman.nasabahId,
+        jumlahPinjaman: Number(pinjaman.jumlahPinjaman),
+        sisaPinjaman: Number(pinjaman.sisaPinjaman),
+        status: pinjaman.status,
+        deletedAt: pinjaman.deletedAt?.toISOString() ?? null,
+      },
+      after: {
+        deletedAt: new Date().toISOString(),
+      },
+    });
     return {
       message: 'Pinjaman berhasil dihapus',
     };

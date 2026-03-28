@@ -4,6 +4,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { StringValue } from 'ms';
@@ -24,14 +25,18 @@ import {
   UpdateUserDto,
 } from './dto';
 import { AuditTrailService } from '../audit/audit.service';
+import { SecurityLogService } from './security-log.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly authRepository: AuthRepository,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly auditTrailService: AuditTrailService,
+    private readonly securityLogService: SecurityLogService,
     private readonly cacheService: CacheService,
     private readonly prisma: PrismaClient,
   ) {}
@@ -95,10 +100,9 @@ export class AuthService {
     );
 
     if (!user) {
-      await this.auditTrailService.log({
-        action: AuditAction.LOGIN_FAILED,
-        entityName: 'Auth',
-        after: { identifier: loginDto.usernameOrEmail },
+      this.securityLogService.logLoginFailed({
+        identifier: loginDto.usernameOrEmail,
+        reason: 'USER_NOT_FOUND',
         ipAddress,
       });
       throw new UnauthorizedException('Username/email atau password salah');
@@ -106,13 +110,11 @@ export class AuthService {
 
     // Check if user is active
     if (!user.isActive) {
-      await this.auditTrailService.log({
-        action: AuditAction.LOGIN_FAILED,
-        entityName: 'User',
-        entityId: user.id,
-        userId: user.id,
-        after: { reason: 'INACTIVE' },
+      this.securityLogService.logLoginFailed({
+        identifier: loginDto.usernameOrEmail,
+        reason: 'INACTIVE',
         ipAddress,
+        userId: user.id,
       });
       throw new UnauthorizedException('Akun Anda tidak aktif');
     }
@@ -124,33 +126,26 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      await this.auditTrailService.log({
-        action: AuditAction.LOGIN_FAILED,
-        entityName: 'User',
-        entityId: user.id,
-        userId: user.id,
-        after: { reason: 'INVALID_CREDENTIALS' },
+      this.securityLogService.logLoginFailed({
+        identifier: loginDto.usernameOrEmail,
+        reason: 'INVALID_CREDENTIALS',
         ipAddress,
+        userId: user.id,
       });
       throw new UnauthorizedException('Username/email atau password salah');
     }
 
     // Update last login
     const loginAt = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      await this.authRepository.updateLastLogin(user.id, loginAt, tx);
-      await this.auditTrailService.log(
-        {
-          action: AuditAction.LOGIN,
-          entityName: 'User',
-          entityId: user.id,
-          userId: user.id,
-          before: { lastLoginAt: user.lastLoginAt?.toISOString() ?? null },
-          after: { lastLoginAt: loginAt.toISOString() },
-          ipAddress,
-        },
-        tx,
-      );
+    await this.authRepository.updateLastLogin(user.id, loginAt);
+    await this.auditTrailService.log({
+      action: AuditAction.LOGIN,
+      entityName: 'User',
+      entityId: user.id,
+      userId: user.id,
+      before: { lastLoginAt: user.lastLoginAt?.toISOString() ?? null },
+      after: { lastLoginAt: loginAt.toISOString() },
+      ipAddress,
     });
 
     // Extract roles and permissions
@@ -179,7 +174,7 @@ export class AuthService {
     });
 
     const refreshToken = this.jwtService.sign(
-      { sub: user.id },
+      { sub: user.id, tokenType: 'refresh' },
       {
         expiresIn: refreshTokenExpiresIn as StringValue,
       },
@@ -323,7 +318,57 @@ export class AuthService {
     };
   }
 
-  async refreshToken(userId: number) {
+  async refreshToken(refreshToken: string) {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token wajib diisi');
+    }
+
+    type RefreshTokenPayload = {
+      sub?: number;
+      tokenType?: string;
+      username?: string;
+      email?: string;
+      roles?: unknown;
+      permissions?: unknown;
+    };
+
+    let verifiedPayload: RefreshTokenPayload;
+    try {
+      verifiedPayload = this.jwtService.verify<RefreshTokenPayload>(
+        refreshToken,
+        {
+          secret:
+            this.configService.get<string>('jwt.secret') ||
+            'your-secret-key-change-in-production',
+        },
+      );
+    } catch {
+      throw new UnauthorizedException(
+        'Refresh token tidak valid atau sudah kedaluwarsa',
+      );
+    }
+
+    // Backward-compatible: old refresh token only has { sub }.
+    // Also prevents access token payload from being used for refresh.
+    const isLegacyRefreshToken =
+      !verifiedPayload.tokenType &&
+      !verifiedPayload.username &&
+      !verifiedPayload.email &&
+      !Array.isArray(verifiedPayload.roles) &&
+      !Array.isArray(verifiedPayload.permissions);
+
+    const isTypedRefreshToken = verifiedPayload.tokenType === 'refresh';
+
+    if (
+      !verifiedPayload.sub ||
+      (!isTypedRefreshToken && !isLegacyRefreshToken)
+    ) {
+      throw new UnauthorizedException(
+        'Refresh token tidak valid atau sudah kedaluwarsa',
+      );
+    }
+
+    const userId = verifiedPayload.sub;
     const user = await this.authRepository.findUserById(userId);
 
     if (!user) {
@@ -398,7 +443,7 @@ export class AuthService {
     );
 
     if (tokenPayload?.sub) {
-      void this.auditTrailService.log({
+      await this.auditTrailService.log({
         action: AuditAction.LOGOUT,
         entityName: 'User',
         entityId: tokenPayload.sub,
@@ -413,10 +458,18 @@ export class AuthService {
   }
 
   async isTokenBlacklisted(accessToken: string) {
-    const cached = await this.cacheService.getString(
-      this.getBlacklistKey(accessToken),
-    );
-    return Boolean(cached);
+    try {
+      const cached = await this.cacheService.getString(
+        this.getBlacklistKey(accessToken),
+      );
+      return Boolean(cached);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Cache blacklist tidak tersedia, gunakan fail-open policy: ${message}`,
+      );
+      return false;
+    }
   }
 
   // ==================== ROLE MANAGEMENT ====================

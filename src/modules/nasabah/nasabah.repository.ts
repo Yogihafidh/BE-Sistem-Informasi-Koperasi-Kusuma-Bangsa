@@ -6,6 +6,10 @@ import {
   JenisDokumen,
   JenisSimpanan,
 } from '@prisma/client';
+import {
+  CursorPageRequest,
+  CursorPageResult,
+} from '../../common/types/pagination.type';
 
 export const nasabahListSelect = Prisma.validator<Prisma.NasabahSelect>()({
   id: true,
@@ -49,6 +53,7 @@ export class NasabahRepository {
       where: { id },
       select: {
         id: true,
+        userId: true,
         statusAktif: true,
       },
     });
@@ -98,32 +103,75 @@ export class NasabahRepository {
         user: {
           select: { id: true, username: true, email: true },
         },
-        dokumen: true,
+        dokumen: {
+          where: { deletedAt: null },
+        },
       },
     });
   }
 
-  async findAllNasabah(cursor: number | undefined, take: number) {
-    const data = await this.prisma.nasabah.findMany({
-      where: { deletedAt: null },
+  async findAllNasabah(
+    page: CursorPageRequest,
+    status?: NasabahStatus,
+  ): Promise<CursorPageResult<NasabahListRow>> {
+    const isBackward = typeof page.before === 'number';
+    const baseWhere: Prisma.NasabahWhereInput = {
+      deletedAt: null,
+      ...(status ? { status } : {}),
+    };
+
+    const dataWhere: Prisma.NasabahWhereInput = {
+      ...baseWhere,
+      ...(typeof page.after === 'number' ? { id: { gt: page.after } } : {}),
+      ...(typeof page.before === 'number' ? { id: { lt: page.before } } : {}),
+    };
+
+    const rows = await this.prisma.nasabah.findMany({
+      where: dataWhere,
       select: nasabahListSelect,
-      orderBy: { id: 'desc' },
-      take: take + 1,
-      ...(cursor
-        ? {
-            cursor: { id: cursor },
-            skip: 1,
-          }
-        : {}),
+      orderBy: { id: isBackward ? 'desc' : 'asc' },
+      take: page.take,
     });
 
-    let nextCursor: number | null = null;
-    if (data.length > take) {
-      const nextItem = data.pop();
-      nextCursor = nextItem?.id ?? null;
+    const data = isBackward ? [...rows].reverse() : rows;
+
+    if (data.length === 0) {
+      return {
+        data,
+        nextCursor: null,
+        prevCursor: null,
+        hasNext: false,
+        hasPrev: false,
+      };
     }
 
-    return { data, nextCursor };
+    const prevCursor = data[0].id;
+    const nextCursor = data.at(-1)!.id;
+
+    const [prevItem, nextItem] = await Promise.all([
+      this.prisma.nasabah.findFirst({
+        where: {
+          ...baseWhere,
+          id: { lt: prevCursor },
+        },
+        select: { id: true },
+      }),
+      this.prisma.nasabah.findFirst({
+        where: {
+          ...baseWhere,
+          id: { gt: nextCursor },
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    return {
+      data,
+      nextCursor,
+      prevCursor,
+      hasNext: Boolean(nextItem),
+      hasPrev: Boolean(prevItem),
+    };
   }
 
   findNasabahById(id: number) {
@@ -140,7 +188,9 @@ export class NasabahRepository {
         user: {
           select: { id: true, username: true, email: true },
         },
-        dokumen: true,
+        dokumen: {
+          where: { deletedAt: null },
+        },
       },
     });
   }
@@ -175,7 +225,9 @@ export class NasabahRepository {
         user: {
           select: { id: true, username: true, email: true },
         },
-        dokumen: true,
+        dokumen: {
+          where: { deletedAt: null },
+        },
       },
     });
   }
@@ -201,7 +253,9 @@ export class NasabahRepository {
         user: {
           select: { id: true, username: true, email: true },
         },
-        dokumen: true,
+        dokumen: {
+          where: { deletedAt: null },
+        },
       },
     });
   }
@@ -229,25 +283,63 @@ export class NasabahRepository {
     });
   }
 
-  softDeleteNasabah(id: number, tx?: Prisma.TransactionClient) {
-    const client = this.getClient(tx);
-    return client.nasabah.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-  }
-
   createNasabahDokumen(
     data: {
       nasabahId: number;
       jenisDokumen: JenisDokumen;
-      fileUrl: string;
+      fileKey: string;
     },
     tx?: Prisma.TransactionClient,
   ) {
     const client = this.getClient(tx);
     return client.nasabahDokumen.create({
       data,
+    });
+  }
+
+  findNasabahDokumenByJenis(nasabahId: number, jenisDokumen: JenisDokumen) {
+    return this.prisma.nasabahDokumen.findFirst({
+      where: { nasabahId, jenisDokumen, deletedAt: null },
+      orderBy: { uploadedAt: 'desc' },
+    });
+  }
+
+  findNasabahDokumenById(id: number) {
+    return this.prisma.nasabahDokumen.findUnique({
+      where: { id },
+      include: {
+        nasabah: {
+          select: {
+            id: true,
+            pegawaiId: true,
+          },
+        },
+      },
+    });
+  }
+
+  updateNasabahDokumen(
+    id: number,
+    data: {
+      fileKey: string;
+      uploadedAt?: Date;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = this.getClient(tx);
+    return client.nasabahDokumen.update({
+      where: { id },
+      data,
+    });
+  }
+
+  softDeleteNasabahDokumen(id: number, tx?: Prisma.TransactionClient) {
+    const client = this.getClient(tx);
+    return client.nasabahDokumen.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+      },
     });
   }
 }
