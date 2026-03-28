@@ -8,6 +8,7 @@ export class MinioService {
   private readonly minioClient: Client;
   private readonly publicUrl: string;
   private readonly presignedExpirySeconds: number;
+  private readonly presignedTimeoutMs: number;
   private readonly bucketMap: Record<JenisDokumen, string>;
   private readonly ensuredBuckets = new Set<string>();
 
@@ -39,6 +40,14 @@ export class MinioService {
       604800,
       Math.max(60, normalizedExpiry),
     );
+
+    const configuredTimeout = Number(
+      process.env.MINIO_PRESIGNED_TIMEOUT_MS || '3000',
+    );
+    const normalizedTimeout = Number.isFinite(configuredTimeout)
+      ? Math.floor(configuredTimeout)
+      : 3000;
+    this.presignedTimeoutMs = Math.min(10000, Math.max(500, normalizedTimeout));
 
     this.bucketMap = {
       [JenisDokumen.KTP]: this.normalizeBucket(
@@ -174,11 +183,33 @@ export class MinioService {
     objectName: string,
     expiresInSeconds = this.presignedExpirySeconds,
   ) {
-    return this.minioClient.presignedGetObject(
-      bucket,
-      objectName,
-      expiresInSeconds,
+    return this.withTimeout(
+      this.minioClient.presignedGetObject(bucket, objectName, expiresInSeconds),
+      this.presignedTimeoutMs,
+      `presignedGetObject timeout (${this.presignedTimeoutMs}ms)`,
     );
+  }
+
+  private async withTimeout<T>(
+    operation: Promise<T>,
+    timeoutMs: number,
+    timeoutMessage: string,
+  ): Promise<T> {
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(new Error(timeoutMessage));
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([operation, timeoutPromise]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 
   async buildAccessibleUrl(bucket: string, objectName: string) {
