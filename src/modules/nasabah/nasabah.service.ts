@@ -128,17 +128,46 @@ export class NasabahService {
       return data;
     }
 
-    const dokumen = await Promise.all(
-      data.dokumen.map(async (item) => ({
-        id: item.id,
-        nasabahId: item.nasabahId,
-        jenisDokumen: item.jenisDokumen,
-        fileUrl: await this.minioService.buildAccessibleUrlFromStoredUrl(
-          item.fileKey,
-        ),
-        uploadedAt: item.uploadedAt,
-      })),
+    this.logger.log(
+      `[NASABAH_DETAIL] START generate accessible URL untuk ${data.dokumen.length} dokumen`,
     );
+    console.time('[NASABAH_DETAIL] generate-url-total');
+
+    const dokumen = await Promise.all(
+      data.dokumen.map(async (item) => {
+        const label = `[NASABAH_DETAIL] generate-url-doc-${item.id}`;
+        this.logger.log(
+          `${label} START jenis=${item.jenisDokumen} nasabahId=${item.nasabahId}`,
+        );
+        console.time(label);
+
+        try {
+          const fileUrl =
+            await this.minioService.buildAccessibleUrlFromStoredUrl(
+              item.fileKey,
+            );
+
+          this.logger.log(`${label} DONE`);
+          return {
+            id: item.id,
+            nasabahId: item.nasabahId,
+            jenisDokumen: item.jenisDokumen,
+            fileUrl,
+            uploadedAt: item.uploadedAt,
+          };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.logger.error(`${label} ERROR: ${message}`);
+          throw error;
+        } finally {
+          console.timeEnd(label);
+        }
+      }),
+    );
+
+    console.timeEnd('[NASABAH_DETAIL] generate-url-total');
+    this.logger.log('[NASABAH_DETAIL] DONE generate accessible URL');
 
     return {
       ...data,
@@ -284,8 +313,13 @@ export class NasabahService {
   }
 
   async getNasabahById(id: number, user: RequestUser) {
+    this.logger.log(`[NASABAH_DETAIL] START get detail nasabah id=${id}`);
+    console.time(`[NASABAH_DETAIL] total-${id}`);
+    this.logger.log('[NASABAH_DETAIL] BEFORE DB QUERY');
     const nasabah = await this.nasabahRepository.findNasabahById(id);
+    this.logger.log('[NASABAH_DETAIL] AFTER DB QUERY');
     if (!nasabah) {
+      console.timeEnd(`[NASABAH_DETAIL] total-${id}`);
       throw new NotFoundException('Nasabah tidak ditemukan');
     }
 
@@ -302,6 +336,9 @@ export class NasabahService {
 
     const nasabahWithAccessibleDokumen =
       await this.toAccessibleDokumenUrls(nasabah);
+
+    this.logger.log('[NASABAH_DETAIL] RETURN response');
+    console.timeEnd(`[NASABAH_DETAIL] total-${id}`);
 
     return {
       message: 'Berhasil mengambil data nasabah',

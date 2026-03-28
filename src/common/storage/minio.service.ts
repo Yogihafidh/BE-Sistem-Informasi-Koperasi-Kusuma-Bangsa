@@ -10,6 +10,7 @@ export class MinioService {
   private readonly publicClient: Client;
   private readonly publicUrl: string;
   private readonly presignedExpirySeconds: number;
+  private readonly presignedTimeoutMs: number;
   private readonly bucketMap: Record<JenisDokumen, string>;
   private readonly ensuredBuckets = new Set<string>();
 
@@ -32,7 +33,7 @@ export class MinioService {
 
     let publicEndpoint =
       configService.get<string>('MINIO_PUBLIC_ENDPOINT') || internalEndpoint;
-    let publicPort = parseInt(
+    let publicPort = Number.parseInt(
       configService.get<string>('MINIO_PUBLIC_PORT') || `${internalPort}`,
       10,
     );
@@ -75,6 +76,14 @@ export class MinioService {
       604800,
       Math.max(60, normalizedExpiry),
     );
+
+    const configuredTimeout = Number(
+      configService.get<string>('MINIO_PRESIGNED_TIMEOUT_MS') || '2000',
+    );
+    const normalizedTimeout = Number.isFinite(configuredTimeout)
+      ? Math.floor(configuredTimeout)
+      : 2000;
+    this.presignedTimeoutMs = Math.min(10000, Math.max(500, normalizedTimeout));
 
     this.bucketMap = {
       [JenisDokumen.KTP]: this.normalizeBucket(
@@ -218,11 +227,55 @@ export class MinioService {
     objectName: string,
     expiresInSeconds = this.presignedExpirySeconds,
   ) {
-    return this.publicClient.presignedGetObject(
-      bucket,
-      objectName,
-      expiresInSeconds,
+    this.logger.log(
+      `[MINIO] START presignedGetObject bucket=${bucket} object=${objectName}`,
     );
+    const timerLabel = `[MINIO] presignedGetObject ${bucket}/${objectName}`;
+    console.time(timerLabel);
+
+    try {
+      const result = await this.withTimeout(
+        this.publicClient.presignedGetObject(
+          bucket,
+          objectName,
+          expiresInSeconds,
+        ),
+        this.presignedTimeoutMs,
+        `presignedGetObject timeout (${this.presignedTimeoutMs}ms)`,
+      );
+      this.logger.log(`[MINIO] DONE presignedGetObject bucket=${bucket}`);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `[MINIO] ERROR presignedGetObject bucket=${bucket}: ${message}`,
+      );
+      throw error;
+    } finally {
+      console.timeEnd(timerLabel);
+    }
+  }
+
+  private async withTimeout<T>(
+    operation: Promise<T>,
+    timeoutMs: number,
+    timeoutMessage: string,
+  ): Promise<T> {
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(new Error(timeoutMessage));
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([operation, timeoutPromise]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 
   async buildAccessibleUrl(bucket: string, objectName: string) {
