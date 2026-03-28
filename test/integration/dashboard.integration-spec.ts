@@ -127,9 +127,7 @@ describe('Dashboard Module (Integration)', () => {
         }),
       );
 
-      expect(body.aktivitasTransaksi.cashflowTrend).toEqual(
-        expect.any(Array),
-      );
+      expect(body.aktivitasTransaksi.cashflowTrend).toEqual(expect.any(Array));
       expect(body.kreditPinjaman.topOutstanding).toEqual(expect.any(Array));
       expect(body.keanggotaan).toEqual(
         expect.objectContaining({

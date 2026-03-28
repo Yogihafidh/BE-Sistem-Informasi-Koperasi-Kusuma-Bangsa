@@ -89,4 +89,3 @@ export class DashboardController {
     return this.dashboardService.getDashboard(query.bulan, query.tahun);
   }
 }
-

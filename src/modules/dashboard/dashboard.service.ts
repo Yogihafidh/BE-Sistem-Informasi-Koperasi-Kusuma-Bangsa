@@ -1,9 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  JenisSimpanan,
-  JenisTransaksi,
-  Prisma,
-} from '@prisma/client';
+import { JenisSimpanan, JenisTransaksi, Prisma } from '@prisma/client';
 import { DashboardRepository } from './dashboard.repository';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
@@ -33,9 +29,7 @@ export class DashboardService {
 
   private getTrendRange(bulan: number, tahun: number, trendMonths: number) {
     const endMonth = new Date(Date.UTC(tahun, bulan - 1, 1));
-    const startMonth = new Date(
-      Date.UTC(tahun, bulan - trendMonths, 1),
-    );
+    const startMonth = new Date(Date.UTC(tahun, bulan - trendMonths, 1));
 
     return { startMonth, endMonth };
   }
@@ -190,7 +184,10 @@ export class DashboardService {
 
     const performance = {
       simpanan: this.calculateGrowth(totalSimpanan, previousSimpanan),
-      transaksi: this.calculateGrowth(currentTotalTransaksi, previousTotalTransaksi),
+      transaksi: this.calculateGrowth(
+        currentTotalTransaksi,
+        previousTotalTransaksi,
+      ),
       anggota: this.calculateGrowth(aktifNasabah, previousAktifNasabah),
     };
 
@@ -226,17 +223,18 @@ export class DashboardService {
         anggotaKeluar,
       }));
 
-    const kasMasukBulanIni =
-      currentNominal.SETORAN + currentNominal.ANGSURAN;
+    const kasMasukBulanIni = currentNominal.SETORAN + currentNominal.ANGSURAN;
     const kasKeluarBulanIni =
       currentNominal.PENARIKAN + currentNominal.PENCAIRAN;
 
     const cashflow: 'surplus' | 'defisit' =
       kasMasukBulanIni >= kasKeluarBulanIni ? 'surplus' : 'defisit';
 
-    const negatifCount = [performance.simpanan, performance.transaksi, performance.anggota].filter(
-      (value) => value < 0,
-    ).length;
+    const negatifCount = [
+      performance.simpanan,
+      performance.transaksi,
+      performance.anggota,
+    ].filter((value) => value < 0).length;
     let kondisi: 'stabil' | 'belum stabil' | 'berisiko' = 'belum stabil';
     if (cashflow === 'surplus' && negatifCount <= 1) {
       kondisi = 'stabil';

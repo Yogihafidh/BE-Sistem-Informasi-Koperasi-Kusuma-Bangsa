@@ -16,9 +16,7 @@ export class DashboardRepository {
   }
 
   private nextMonthStart(date: Date) {
-    return new Date(
-      Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1),
-    );
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
   }
 
   private buildTransaksiWhere(args: {
