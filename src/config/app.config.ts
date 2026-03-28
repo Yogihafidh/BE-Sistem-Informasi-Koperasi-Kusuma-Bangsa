@@ -11,6 +11,5 @@ export default registerAs('app', () => ({
   cacheTtlDashboardSeconds:
     Number.parseInt(process.env.CACHE_TTL_DASHBOARD_SECONDS || '45', 10) || 45,
   cacheTtlSettingsSeconds:
-    Number.parseInt(process.env.CACHE_TTL_SETTINGS_SECONDS || '600', 10) ||
-    600,
+    Number.parseInt(process.env.CACHE_TTL_SETTINGS_SECONDS || '600', 10) || 600,
 }));
