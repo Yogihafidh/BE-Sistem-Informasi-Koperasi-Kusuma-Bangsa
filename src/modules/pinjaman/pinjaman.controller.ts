@@ -516,7 +516,10 @@ export class PinjamanController {
   })
   @ApiNotFoundExample('Pinjaman tidak ditemukan')
   @ApiAuthErrors()
-  softDeletePinjaman(@Param('id', ParseIntPipe) id: number) {
-    return this.pinjamanService.softDeletePinjaman(id);
+  softDeletePinjaman(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+  ) {
+    return this.pinjamanService.softDeletePinjaman(id, user.userId);
   }
 }

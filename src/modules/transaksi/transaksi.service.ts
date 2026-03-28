@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AuditAction,
   JenisTransaksi,
   NasabahStatus,
   PinjamanStatus,
@@ -17,6 +18,7 @@ import { validateBidirectionalPaginationParams } from '../../common/utils/pagina
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
 import { DashboardService } from '../dashboard/dashboard.service';
+import { AuditTrailService } from '../audit/audit.service';
 
 @Injectable()
 export class TransaksiService {
@@ -24,6 +26,7 @@ export class TransaksiService {
     private readonly transaksiRepository: TransaksiRepository,
     private readonly settingsService: SettingsService,
     private readonly dashboardService: DashboardService,
+    private readonly auditTrailService: AuditTrailService,
     private readonly prisma: PrismaClient,
   ) {}
 
@@ -243,6 +246,54 @@ export class TransaksiService {
       });
     });
 
+    let entityName = 'transaksi';
+    let entityId = transaksi.id;
+
+    if (requiresRekening) {
+      entityName = 'simpanan';
+      entityId = dto.rekeningSimpananId as number;
+    } else if (requiresPinjaman) {
+      entityName = 'pinjaman';
+      entityId = dto.pinjamanId as number;
+    }
+
+    await this.auditTrailService.log({
+      action: AuditAction.CREATE,
+      userId,
+      entityName,
+      entityId,
+      before: {
+        ...(rekening
+          ? {
+              rekeningSimpananId: rekening.id,
+              saldoSebelum: Number(rekening.saldoBerjalan),
+            }
+          : {}),
+        ...(pinjaman
+          ? {
+              pinjamanId: pinjaman.id,
+              sisaPinjamanSebelum: Number(pinjaman.sisaPinjaman),
+              statusPinjamanSebelum: pinjaman.status,
+            }
+          : {}),
+      },
+      after: {
+        transaksiId: transaksi.id,
+        jenisTransaksi: transaksi.jenisTransaksi,
+        nominal: Number(transaksi.nominal),
+        nasabahId: transaksi.nasabahId,
+        ...(updateRekening
+          ? { saldoSesudah: Number(updateRekening.saldoBerjalan) }
+          : {}),
+        ...(updatePinjaman
+          ? {
+              sisaPinjamanSesudah: Number(updatePinjaman.sisaPinjaman),
+              statusPinjamanSesudah: updatePinjaman.status ?? pinjaman?.status,
+            }
+          : {}),
+      },
+    });
+
     await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
       'transaksi:create',
     );
@@ -266,7 +317,7 @@ export class TransaksiService {
     };
   }
 
-  async softDeleteTransaksi(id: number) {
+  async softDeleteTransaksi(id: number, userId: number) {
     const transaksi =
       await this.transaksiRepository.findTransaksiSummaryById(id);
     if (!transaksi) {
@@ -274,6 +325,24 @@ export class TransaksiService {
     }
 
     await this.transaksiRepository.softDeleteTransaksi(id);
+    await this.auditTrailService.log({
+      action: 'DELETE' as AuditAction,
+      userId,
+      entityName: 'transaksi',
+      entityId: transaksi.id,
+      before: {
+        id: transaksi.id,
+        jenisTransaksi: transaksi.jenisTransaksi,
+        nominal: Number(transaksi.nominal),
+        nasabahId: transaksi.nasabahId,
+        rekeningSimpananId: transaksi.rekeningSimpananId,
+        pinjamanId: transaksi.pinjamanId,
+        deletedAt: transaksi.deletedAt?.toISOString() ?? null,
+      },
+      after: {
+        deletedAt: new Date().toISOString(),
+      },
+    });
     await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
       'transaksi:softDelete',
     );

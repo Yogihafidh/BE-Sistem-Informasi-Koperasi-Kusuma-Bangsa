@@ -223,7 +223,10 @@ export class SimpananController {
   @ApiBadRequestExample('Rekening dengan saldo masih ada tidak dapat dihapus')
   @ApiNotFoundExample('Rekening simpanan tidak ditemukan')
   @ApiAuthErrors()
-  softDeleteRekening(@Param('id', ParseIntPipe) id: number) {
-    return this.simpananService.softDeleteRekening(id);
+  softDeleteRekening(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+  ) {
+    return this.simpananService.softDeleteRekening(id, user.userId);
   }
 }

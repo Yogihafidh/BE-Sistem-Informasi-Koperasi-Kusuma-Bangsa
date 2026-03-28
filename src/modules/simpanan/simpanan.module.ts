@@ -6,9 +6,10 @@ import { SimpananRepository } from './simpanan.repository';
 import { TransaksiRepository } from '../transaksi/transaksi.repository';
 import { TransaksiModule } from '../transaksi/transaksi.module';
 import { DashboardModule } from '../dashboard/dashboard.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [TransaksiModule, DashboardModule],
+  imports: [TransaksiModule, DashboardModule, AuditModule],
   controllers: [SimpananController],
   providers: [
     SimpananService,

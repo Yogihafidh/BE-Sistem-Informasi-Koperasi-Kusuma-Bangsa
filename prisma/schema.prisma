@@ -263,8 +263,11 @@ enum AuditAction {
   LOGIN_FAILED
   CREATE
   UPDATE
+  DELETE
   APPROVE
   REJECT
+  GENERATE_REPORT
+  FINALIZE_REPORT
 }
 
 enum StatusLaporan {

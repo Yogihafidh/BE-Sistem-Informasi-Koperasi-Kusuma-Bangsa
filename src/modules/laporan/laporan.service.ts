@@ -4,12 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { LaporanKeuangan, Prisma, StatusLaporan } from '@prisma/client';
+import {
+  AuditAction,
+  LaporanKeuangan,
+  Prisma,
+  StatusLaporan,
+} from '@prisma/client';
 import { LaporanRepository } from './laporan.repository';
 import {
   RekapitulasiBulanan,
   RekapitulasiService,
 } from './rekapitulasi/rekapitulasi.service';
+import { AuditTrailService } from '../audit/audit.service';
 
 type LaporanSnapshotView = {
   id: number;
@@ -33,6 +39,7 @@ type LaporanSnapshotView = {
 export class LaporanService {
   constructor(
     private readonly laporanRepository: LaporanRepository,
+    private readonly auditTrailService: AuditTrailService,
     @Inject(RekapitulasiService)
     private readonly rekapitulasiService: {
       getRekapitulasiBulanan: (
@@ -85,6 +92,31 @@ export class LaporanService {
           ...payload,
           statusLaporan: StatusLaporan.DRAFT,
         });
+
+    await this.auditTrailService.log({
+      action: 'GENERATE_REPORT' as AuditAction,
+      userId,
+      entityName: 'laporan',
+      entityId: laporan.id,
+      before: existing
+        ? {
+            id: existing.id,
+            periodeBulan: existing.periodeBulan,
+            periodeTahun: existing.periodeTahun,
+            statusLaporan: existing.statusLaporan,
+            saldoAkhir: this.toNumber(existing.saldoAkhir),
+            generatedAt: existing.generatedAt.toISOString(),
+          }
+        : null,
+      after: {
+        id: laporan.id,
+        periodeBulan: laporan.periodeBulan,
+        periodeTahun: laporan.periodeTahun,
+        statusLaporan: laporan.statusLaporan,
+        saldoAkhir: this.toNumber(laporan.saldoAkhir),
+        generatedAt: laporan.generatedAt.toISOString(),
+      },
+    });
 
     return {
       message: 'Laporan keuangan berhasil di-generate',
@@ -144,6 +176,7 @@ export class LaporanService {
 
   async finalizeLaporanKeuangan(
     id: number,
+    userId: number,
   ): Promise<{ message: string; data: LaporanKeuangan }> {
     const laporan = await this.laporanRepository.findLaporanKeuanganById(id);
     if (!laporan) {
@@ -154,6 +187,19 @@ export class LaporanService {
       id,
       StatusLaporan.FINAL,
     );
+
+    await this.auditTrailService.log({
+      action: 'FINALIZE_REPORT' as AuditAction,
+      userId,
+      entityName: 'laporan',
+      entityId: updated.id,
+      before: {
+        statusLaporan: laporan.statusLaporan,
+      },
+      after: {
+        statusLaporan: updated.statusLaporan,
+      },
+    });
 
     return {
       message: 'Laporan keuangan berhasil difinalisasi',

@@ -12,6 +12,7 @@ import { AuthService } from './auth.service';
 import { AuthRepository } from './auth.repository';
 import { JwtStrategy, LocalStrategy } from './strategies';
 import { AuditModule } from '../audit/audit.module';
+import { SecurityLogService } from './security-log.service';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { AuditModule } from '../audit/audit.module';
   providers: [
     AuthService,
     AuthRepository,
+    SecurityLogService,
     PrismaClient,
     JwtStrategy,
     LocalStrategy,

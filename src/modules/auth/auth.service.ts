@@ -24,6 +24,7 @@ import {
   UpdateUserDto,
 } from './dto';
 import { AuditTrailService } from '../audit/audit.service';
+import { SecurityLogService } from './security-log.service';
 
 @Injectable()
 export class AuthService {
@@ -32,6 +33,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly auditTrailService: AuditTrailService,
+    private readonly securityLogService: SecurityLogService,
     private readonly cacheService: CacheService,
     private readonly prisma: PrismaClient,
   ) {}
@@ -95,10 +97,9 @@ export class AuthService {
     );
 
     if (!user) {
-      await this.auditTrailService.log({
-        action: AuditAction.LOGIN_FAILED,
-        entityName: 'Auth',
-        after: { identifier: loginDto.usernameOrEmail },
+      this.securityLogService.logLoginFailed({
+        identifier: loginDto.usernameOrEmail,
+        reason: 'USER_NOT_FOUND',
         ipAddress,
       });
       throw new UnauthorizedException('Username/email atau password salah');
@@ -106,13 +107,11 @@ export class AuthService {
 
     // Check if user is active
     if (!user.isActive) {
-      await this.auditTrailService.log({
-        action: AuditAction.LOGIN_FAILED,
-        entityName: 'User',
-        entityId: user.id,
-        userId: user.id,
-        after: { reason: 'INACTIVE' },
+      this.securityLogService.logLoginFailed({
+        identifier: loginDto.usernameOrEmail,
+        reason: 'INACTIVE',
         ipAddress,
+        userId: user.id,
       });
       throw new UnauthorizedException('Akun Anda tidak aktif');
     }
@@ -124,33 +123,26 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      await this.auditTrailService.log({
-        action: AuditAction.LOGIN_FAILED,
-        entityName: 'User',
-        entityId: user.id,
-        userId: user.id,
-        after: { reason: 'INVALID_CREDENTIALS' },
+      this.securityLogService.logLoginFailed({
+        identifier: loginDto.usernameOrEmail,
+        reason: 'INVALID_CREDENTIALS',
         ipAddress,
+        userId: user.id,
       });
       throw new UnauthorizedException('Username/email atau password salah');
     }
 
     // Update last login
     const loginAt = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      await this.authRepository.updateLastLogin(user.id, loginAt, tx);
-      await this.auditTrailService.log(
-        {
-          action: AuditAction.LOGIN,
-          entityName: 'User',
-          entityId: user.id,
-          userId: user.id,
-          before: { lastLoginAt: user.lastLoginAt?.toISOString() ?? null },
-          after: { lastLoginAt: loginAt.toISOString() },
-          ipAddress,
-        },
-        tx,
-      );
+    await this.authRepository.updateLastLogin(user.id, loginAt);
+    await this.auditTrailService.log({
+      action: AuditAction.LOGIN,
+      entityName: 'User',
+      entityId: user.id,
+      userId: user.id,
+      before: { lastLoginAt: user.lastLoginAt?.toISOString() ?? null },
+      after: { lastLoginAt: loginAt.toISOString() },
+      ipAddress,
     });
 
     // Extract roles and permissions
@@ -448,7 +440,7 @@ export class AuthService {
     );
 
     if (tokenPayload?.sub) {
-      void this.auditTrailService.log({
+      await this.auditTrailService.log({
         action: AuditAction.LOGOUT,
         entityName: 'User',
         entityId: tokenPayload.sub,

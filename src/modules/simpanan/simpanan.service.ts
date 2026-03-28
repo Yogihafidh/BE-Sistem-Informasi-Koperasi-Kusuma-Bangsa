@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AuditAction,
   JenisSimpanan,
   JenisTransaksi,
   NasabahStatus,
@@ -20,6 +21,7 @@ import { validateBidirectionalPaginationParams } from '../../common/utils/pagina
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
 import { DashboardService } from '../dashboard/dashboard.service';
+import { AuditTrailService } from '../audit/audit.service';
 
 @Injectable()
 export class SimpananService {
@@ -29,6 +31,7 @@ export class SimpananService {
     private readonly transaksiService: TransaksiService,
     private readonly settingsService: SettingsService,
     private readonly dashboardService: DashboardService,
+    private readonly auditTrailService: AuditTrailService,
     private readonly prisma: PrismaClient,
   ) {}
 
@@ -197,7 +200,7 @@ export class SimpananService {
     };
   }
 
-  async softDeleteRekening(id: number) {
+  async softDeleteRekening(id: number, userId: number) {
     const rekening = await this.simpananRepository.findRekeningById(id);
     if (!rekening) {
       throw new NotFoundException('Rekening simpanan tidak ditemukan');
@@ -210,6 +213,22 @@ export class SimpananService {
     }
 
     await this.simpananRepository.softDeleteRekening(id);
+    await this.auditTrailService.log({
+      action: 'DELETE' as AuditAction,
+      userId,
+      entityName: 'simpanan',
+      entityId: rekening.id,
+      before: {
+        id: rekening.id,
+        nasabahId: rekening.nasabahId,
+        jenisSimpanan: rekening.jenisSimpanan,
+        saldoBerjalan: Number(rekening.saldoBerjalan),
+        deletedAt: rekening.deletedAt?.toISOString() ?? null,
+      },
+      after: {
+        deletedAt: new Date().toISOString(),
+      },
+    });
     await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
       'simpanan:softDeleteRekening',
     );

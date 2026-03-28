@@ -533,13 +533,30 @@ export class PinjamanService {
     };
   }
 
-  async softDeletePinjaman(id: number) {
+  async softDeletePinjaman(id: number, userId: number) {
     const pinjaman = await this.pinjamanRepository.findPinjamanById(id);
     if (!pinjaman) {
       throw new NotFoundException('Pinjaman tidak ditemukan');
     }
 
     await this.pinjamanRepository.softDeletePinjaman(id);
+    await this.auditTrailService.log({
+      action: 'DELETE' as AuditAction,
+      userId,
+      entityName: 'pinjaman',
+      entityId: pinjaman.id,
+      before: {
+        id: pinjaman.id,
+        nasabahId: pinjaman.nasabahId,
+        jumlahPinjaman: Number(pinjaman.jumlahPinjaman),
+        sisaPinjaman: Number(pinjaman.sisaPinjaman),
+        status: pinjaman.status,
+        deletedAt: pinjaman.deletedAt?.toISOString() ?? null,
+      },
+      after: {
+        deletedAt: new Date().toISOString(),
+      },
+    });
     await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
       'pinjaman:softDelete',
     );

@@ -16,13 +16,14 @@ import {
 } from '@nestjs/swagger';
 import { JenisTransaksi } from '@prisma/client';
 import { TransaksiService } from './transaksi.service';
-import { Permissions } from '../../common/decorators';
+import { CurrentUser, Permissions } from '../../common/decorators';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import {
   ApiAuthErrors,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
 import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
+import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
 @ApiTags('transaksi')
 @Controller('transaksi')
@@ -281,7 +282,10 @@ export class TransaksiController {
   })
   @ApiNotFoundExample('Transaksi tidak ditemukan')
   @ApiAuthErrors()
-  softDeleteTransaksi(@Param('id', ParseIntPipe) id: number) {
-    return this.transaksiService.softDeleteTransaksi(id);
+  softDeleteTransaksi(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+  ) {
+    return this.transaksiService.softDeleteTransaksi(id, user.userId);
   }
 }

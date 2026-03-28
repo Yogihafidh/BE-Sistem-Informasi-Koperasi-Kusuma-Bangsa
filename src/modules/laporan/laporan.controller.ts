@@ -75,11 +75,17 @@ export class LaporanController {
     description: 'Laporan keuangan snapshot berhasil difinalisasi',
   })
   @ApiAuthErrors()
-  finalizeLaporanKeuangan(@Param('id', ParseIntPipe) id: number) {
+  finalizeLaporanKeuangan(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+  ) {
     const service = this.laporanService as unknown as {
-      finalizeLaporanKeuangan: (laporanId: number) => Promise<unknown>;
+      finalizeLaporanKeuangan: (
+        laporanId: number,
+        userId: number,
+      ) => Promise<unknown>;
     };
 
-    return service.finalizeLaporanKeuangan(id);
+    return service.finalizeLaporanKeuangan(id, user.userId);
   }
 }
