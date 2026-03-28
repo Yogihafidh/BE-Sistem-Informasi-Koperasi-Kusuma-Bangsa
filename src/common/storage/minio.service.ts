@@ -6,6 +6,7 @@ import { JenisDokumen } from '@prisma/client';
 @Injectable()
 export class MinioService {
   private readonly minioClient: Client;
+  private readonly internalBaseUrl: string;
   private readonly publicUrl: string;
   private readonly presignedExpirySeconds: number;
   private readonly presignedTimeoutMs: number;
@@ -13,22 +14,29 @@ export class MinioService {
   private readonly ensuredBuckets = new Set<string>();
 
   constructor(private readonly configService: ConfigService) {
-    const endpoint =
-      process.env.MINIO_PUBLIC_ENDPOINT ||
-      process.env.MINIO_ENDPOINT ||
-      'localhost';
-    const port = Number.parseInt(
-      process.env.MINIO_PUBLIC_PORT || process.env.MINIO_PORT || '9000',
-      10,
-    );
-    const useSSL =
-      (process.env.MINIO_PUBLIC_USE_SSL ||
-        process.env.MINIO_USE_SSL ||
-        'false') === 'true';
+    const endpoint = process.env.MINIO_ENDPOINT || 'localhost';
+    const port = Number.parseInt(process.env.MINIO_PORT || '9000', 10);
+    const useSSL = (process.env.MINIO_USE_SSL || 'false') === 'true';
     const accessKey = process.env.MINIO_ACCESS_KEY || '';
     const secretKey = process.env.MINIO_SECRET_KEY || '';
 
-    this.publicUrl = `${useSSL ? 'https' : 'http'}://${endpoint}:${port}`;
+    const publicEndpoint =
+      process.env.MINIO_PUBLIC_ENDPOINT ||
+      process.env.MINIO_ENDPOINT ||
+      endpoint;
+    const publicPort = Number.parseInt(
+      process.env.MINIO_PUBLIC_PORT || process.env.MINIO_PORT || `${port}`,
+      10,
+    );
+    const publicUseSSL =
+      (process.env.MINIO_PUBLIC_USE_SSL ||
+        process.env.MINIO_USE_SSL ||
+        'false') === 'true';
+
+    this.internalBaseUrl = `${useSSL ? 'https' : 'http'}://${endpoint}:${port}`;
+    this.publicUrl =
+      process.env.MINIO_PUBLIC_URL ||
+      `${publicUseSSL ? 'https' : 'http'}://${publicEndpoint}:${publicPort}`;
 
     const configuredExpiry = Number(
       configService.get<string>('MINIO_PRESIGNED_EXPIRY_SECONDS') || '300',
@@ -183,11 +191,25 @@ export class MinioService {
     objectName: string,
     expiresInSeconds = this.presignedExpirySeconds,
   ) {
-    return this.withTimeout(
+    const signedUrl = await this.withTimeout(
       this.minioClient.presignedGetObject(bucket, objectName, expiresInSeconds),
       this.presignedTimeoutMs,
       `presignedGetObject timeout (${this.presignedTimeoutMs}ms)`,
     );
+
+    return this.toPublicPresignedUrl(signedUrl);
+  }
+
+  private toPublicPresignedUrl(url: string) {
+    if (!this.publicUrl || this.publicUrl === this.internalBaseUrl) {
+      return url;
+    }
+
+    if (!url.startsWith(this.internalBaseUrl)) {
+      return url;
+    }
+
+    return `${this.publicUrl}${url.slice(this.internalBaseUrl.length)}`;
   }
 
   private async withTimeout<T>(
