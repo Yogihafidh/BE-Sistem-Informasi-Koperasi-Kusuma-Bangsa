@@ -1,70 +1,38 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Client } from 'minio';
 import { ConfigService } from '@nestjs/config';
 import { JenisDokumen } from '@prisma/client';
 
 @Injectable()
 export class MinioService {
-  private readonly logger = new Logger(MinioService.name);
-  private readonly internalClient: Client;
-  private readonly publicClient: Client;
+  private readonly minioClient: Client;
   private readonly publicUrl: string;
   private readonly presignedExpirySeconds: number;
-  private readonly presignedTimeoutMs: number;
   private readonly bucketMap: Record<JenisDokumen, string>;
   private readonly ensuredBuckets = new Set<string>();
 
   constructor(private readonly configService: ConfigService) {
-    const internalEndpoint =
-      configService.get<string>('MINIO_ENDPOINT') || 'localhost';
-    const internalPort = parseInt(
+    const endpoint = configService.get<string>('MINIO_ENDPOINT') || 'localhost';
+    const port = Number.parseInt(
       configService.get<string>('MINIO_PORT') || '9000',
       10,
     );
-    const internalUseSSL =
+    const useSSL =
       (configService.get<string>('MINIO_USE_SSL') || 'false') === 'true';
     const accessKey = configService.get<string>('MINIO_ACCESS_KEY') || '';
     const secretKey = configService.get<string>('MINIO_SECRET_KEY') || '';
 
-    const rawPublicUrl = configService.get<string>('MINIO_PUBLIC_URL');
-    this.publicUrl =
-      rawPublicUrl ||
-      `${internalUseSSL ? 'https' : 'http'}://${internalEndpoint}:${internalPort}`;
-
-    let publicEndpoint =
-      configService.get<string>('MINIO_PUBLIC_ENDPOINT') || internalEndpoint;
-    let publicPort = Number.parseInt(
-      configService.get<string>('MINIO_PUBLIC_PORT') || `${internalPort}`,
+    const publicEndpoint =
+      configService.get<string>('MINIO_PUBLIC_ENDPOINT') || endpoint;
+    const publicPort = Number.parseInt(
+      configService.get<string>('MINIO_PUBLIC_PORT') || `${port}`,
       10,
     );
-    let publicUseSSL =
-      (configService.get<string>('MINIO_PUBLIC_USE_SSL') ||
-        `${internalUseSSL}`) === 'true';
+    const publicUseSSL =
+      (configService.get<string>('MINIO_PUBLIC_USE_SSL') || `${useSSL}`) ===
+      'true';
 
-    if (rawPublicUrl) {
-      try {
-        const parsed = new URL(rawPublicUrl);
-        publicEndpoint = parsed.hostname;
-        publicPort = parsed.port ? Number(parsed.port) : 80;
-        publicUseSSL = parsed.protocol === 'https:';
-      } catch {
-        this.logger.warn(
-          `MINIO_PUBLIC_URL tidak valid (${rawPublicUrl}). Fallback ke endpoint internal untuk signing URL.`,
-        );
-      }
-    }
-
-    if (!rawPublicUrl) {
-      this.logger.warn(
-        `MINIO_PUBLIC_URL tidak ter-set. Fallback ke ${this.publicUrl}. URL browser bisa gagal jika hostname internal tidak dapat di-resolve.`,
-      );
-    }
-
-    if (publicEndpoint === internalEndpoint && publicPort === internalPort) {
-      this.logger.warn(
-        `Presigned URL ditandatangani menggunakan endpoint internal (${internalEndpoint}:${internalPort}). Browser publik kemungkinan tidak dapat mengakses URL ini.`,
-      );
-    }
+    this.publicUrl = `${publicUseSSL ? 'https' : 'http'}://${publicEndpoint}:${publicPort}`;
 
     const configuredExpiry = Number(
       configService.get<string>('MINIO_PRESIGNED_EXPIRY_SECONDS') || '300',
@@ -76,14 +44,6 @@ export class MinioService {
       604800,
       Math.max(60, normalizedExpiry),
     );
-
-    const configuredTimeout = Number(
-      configService.get<string>('MINIO_PRESIGNED_TIMEOUT_MS') || '2000',
-    );
-    const normalizedTimeout = Number.isFinite(configuredTimeout)
-      ? Math.floor(configuredTimeout)
-      : 2000;
-    this.presignedTimeoutMs = Math.min(10000, Math.max(500, normalizedTimeout));
 
     this.bucketMap = {
       [JenisDokumen.KTP]: this.normalizeBucket(
@@ -97,15 +57,7 @@ export class MinioService {
       ),
     };
 
-    this.internalClient = new Client({
-      endPoint: internalEndpoint,
-      port: internalPort,
-      useSSL: internalUseSSL,
-      accessKey,
-      secretKey,
-    });
-
-    this.publicClient = new Client({
+    this.minioClient = new Client({
       endPoint: publicEndpoint,
       port: publicPort,
       useSSL: publicUseSSL,
@@ -119,9 +71,9 @@ export class MinioService {
       return;
     }
 
-    const exists = await this.internalClient.bucketExists(bucket);
+    const exists = await this.minioClient.bucketExists(bucket);
     if (!exists) {
-      await this.internalClient.makeBucket(bucket);
+      await this.minioClient.makeBucket(bucket);
     }
 
     this.ensuredBuckets.add(bucket);
@@ -151,7 +103,7 @@ export class MinioService {
     contentType: string,
   ) {
     await this.ensureBucket(bucket);
-    return this.internalClient.putObject(
+    return this.minioClient.putObject(
       bucket,
       objectName,
       buffer,
@@ -227,55 +179,11 @@ export class MinioService {
     objectName: string,
     expiresInSeconds = this.presignedExpirySeconds,
   ) {
-    this.logger.log(
-      `[MINIO] START presignedGetObject bucket=${bucket} object=${objectName}`,
+    return this.minioClient.presignedGetObject(
+      bucket,
+      objectName,
+      expiresInSeconds,
     );
-    const timerLabel = `[MINIO] presignedGetObject ${bucket}/${objectName}`;
-    console.time(timerLabel);
-
-    try {
-      const result = await this.withTimeout(
-        this.publicClient.presignedGetObject(
-          bucket,
-          objectName,
-          expiresInSeconds,
-        ),
-        this.presignedTimeoutMs,
-        `presignedGetObject timeout (${this.presignedTimeoutMs}ms)`,
-      );
-      this.logger.log(`[MINIO] DONE presignedGetObject bucket=${bucket}`);
-      return result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        `[MINIO] ERROR presignedGetObject bucket=${bucket}: ${message}`,
-      );
-      throw error;
-    } finally {
-      console.timeEnd(timerLabel);
-    }
-  }
-
-  private async withTimeout<T>(
-    operation: Promise<T>,
-    timeoutMs: number,
-    timeoutMessage: string,
-  ): Promise<T> {
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutHandle = setTimeout(() => {
-        reject(new Error(timeoutMessage));
-      }, timeoutMs);
-    });
-
-    try {
-      return await Promise.race([operation, timeoutPromise]);
-    } finally {
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-      }
-    }
   }
 
   async buildAccessibleUrl(bucket: string, objectName: string) {
@@ -302,9 +210,6 @@ export class MinioService {
     }
 
     await this.ensureBucket(resolved.bucket);
-    await this.internalClient.removeObject(
-      resolved.bucket,
-      resolved.objectName,
-    );
+    await this.minioClient.removeObject(resolved.bucket, resolved.objectName);
   }
 }
