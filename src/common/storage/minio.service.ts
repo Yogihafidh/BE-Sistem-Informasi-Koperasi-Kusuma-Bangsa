@@ -1,12 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Client } from 'minio';
 import { ConfigService } from '@nestjs/config';
 import { JenisDokumen } from '@prisma/client';
 
 @Injectable()
 export class MinioService {
+  private readonly logger = new Logger(MinioService.name);
   private readonly client: Client;
   private readonly publicUrl: string;
+  private readonly internalBaseUrl: string;
   private readonly presignedExpirySeconds: number;
   private readonly bucketMap: Record<JenisDokumen, string>;
   private readonly ensuredBuckets = new Set<string>();
@@ -25,6 +27,19 @@ export class MinioService {
     this.publicUrl =
       configService.get<string>('MINIO_PUBLIC_URL') ||
       `http://${endPoint}:${port}`;
+    this.internalBaseUrl = `${useSSL ? 'https' : 'http'}://${endPoint}:${port}`;
+
+    if (!configService.get<string>('MINIO_PUBLIC_URL')) {
+      this.logger.warn(
+        `MINIO_PUBLIC_URL tidak ter-set. Fallback ke ${this.publicUrl}. URL browser bisa gagal jika hostname internal tidak dapat di-resolve.`,
+      );
+    }
+
+    if (this.publicUrl === this.internalBaseUrl) {
+      this.logger.warn(
+        `MINIO_PUBLIC_URL sama dengan endpoint internal (${this.internalBaseUrl}). Presigned URL kemungkinan tidak dapat diakses dari browser publik.`,
+      );
+    }
 
     const configuredExpiry = Number(
       configService.get<string>('MINIO_PRESIGNED_EXPIRY_SECONDS') || '300',
@@ -165,7 +180,27 @@ export class MinioService {
     objectName: string,
     expiresInSeconds = this.presignedExpirySeconds,
   ) {
-    return this.client.presignedGetObject(bucket, objectName, expiresInSeconds);
+    const presignedUrl = await this.client.presignedGetObject(
+      bucket,
+      objectName,
+      expiresInSeconds,
+    );
+
+    return this.toPublicPresignedUrl(presignedUrl);
+  }
+
+  private toPublicPresignedUrl(url: string) {
+    try {
+      const internal = new URL(url);
+      const external = new URL(this.publicUrl);
+
+      external.pathname = internal.pathname;
+      external.search = internal.search;
+
+      return external.toString();
+    } catch {
+      return url.replace(this.internalBaseUrl, this.publicUrl);
+    }
   }
 
   async buildAccessibleUrl(bucket: string, objectName: string) {
