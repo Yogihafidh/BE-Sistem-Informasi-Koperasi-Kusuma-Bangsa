@@ -113,7 +113,7 @@ export class NasabahService {
     };
   }
 
-  private async toAccessibleDokumenUrls<
+  private toAccessibleDokumenUrls<
     T extends {
       dokumen?: Array<{
         id: number;
@@ -123,51 +123,24 @@ export class NasabahService {
         uploadedAt: Date;
       }>;
     },
-  >(data: T): Promise<T> {
+  >(data: T): T {
     if (!data.dokumen || data.dokumen.length === 0) {
       return data;
     }
 
-    this.logger.log(
-      `[NASABAH_DETAIL] START generate accessible URL untuk ${data.dokumen.length} dokumen`,
-    );
-    console.time('[NASABAH_DETAIL] generate-url-total');
+    const dokumen = data.dokumen.map((item) => {
+      const fileUrl = this.minioService.buildAccessibleUrlFromStoredUrl(
+        item.fileKey,
+      );
 
-    const dokumen = await Promise.all(
-      data.dokumen.map(async (item) => {
-        const label = `[NASABAH_DETAIL] generate-url-doc-${item.id}`;
-        this.logger.log(
-          `${label} START jenis=${item.jenisDokumen} nasabahId=${item.nasabahId}`,
-        );
-        console.time(label);
-
-        try {
-          const fileUrl =
-            await this.minioService.buildAccessibleUrlFromStoredUrl(
-              item.fileKey,
-            );
-
-          this.logger.log(`${label} DONE`);
-          return {
-            id: item.id,
-            nasabahId: item.nasabahId,
-            jenisDokumen: item.jenisDokumen,
-            fileUrl,
-            uploadedAt: item.uploadedAt,
-          };
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          this.logger.error(`${label} ERROR: ${message}`);
-          throw error;
-        } finally {
-          console.timeEnd(label);
-        }
-      }),
-    );
-
-    console.timeEnd('[NASABAH_DETAIL] generate-url-total');
-    this.logger.log('[NASABAH_DETAIL] DONE generate accessible URL');
+      return {
+        id: item.id,
+        nasabahId: item.nasabahId,
+        jenisDokumen: item.jenisDokumen,
+        fileUrl,
+        uploadedAt: item.uploadedAt,
+      };
+    });
 
     return {
       ...data,
@@ -334,8 +307,7 @@ export class NasabahService {
       }
     }
 
-    const nasabahWithAccessibleDokumen =
-      await this.toAccessibleDokumenUrls(nasabah);
+    const nasabahWithAccessibleDokumen = this.toAccessibleDokumenUrls(nasabah);
 
     this.logger.log('[NASABAH_DETAIL] RETURN response');
     console.timeEnd(`[NASABAH_DETAIL] total-${id}`);
@@ -519,7 +491,7 @@ export class NasabahService {
         fileKey,
       });
 
-      const accessibleFileUrl = await this.minioService.buildAccessibleUrl(
+      const accessibleFileUrl = this.minioService.buildAccessibleUrl(
         bucket,
         objectName,
       );
@@ -612,7 +584,7 @@ export class NasabahService {
           fileKey,
         });
 
-    const accessibleFileUrl = await this.minioService.buildAccessibleUrl(
+    const accessibleFileUrl = this.minioService.buildAccessibleUrl(
       bucket,
       objectName,
     );

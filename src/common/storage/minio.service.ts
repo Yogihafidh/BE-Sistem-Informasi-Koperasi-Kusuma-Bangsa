@@ -7,8 +7,6 @@ import { JenisDokumen } from '@prisma/client';
 export class MinioService {
   private readonly minioClient: Client;
   private readonly publicUrl: string;
-  private readonly presignedExpirySeconds: number;
-  private readonly presignedTimeoutMs: number;
   private readonly bucketMap: Record<JenisDokumen, string>;
   private readonly ensuredBuckets = new Set<string>();
 
@@ -31,25 +29,6 @@ export class MinioService {
     this.publicUrl =
       process.env.MINIO_PUBLIC_URL ||
       `${useSSL ? 'https' : 'http'}://${endpoint}:${port}`;
-
-    const configuredExpiry = Number(
-      configService.get<string>('MINIO_PRESIGNED_EXPIRY_SECONDS') || '300',
-    );
-    const normalizedExpiry = Number.isFinite(configuredExpiry)
-      ? Math.floor(configuredExpiry)
-      : 300;
-    this.presignedExpirySeconds = Math.min(
-      604800,
-      Math.max(60, normalizedExpiry),
-    );
-
-    const configuredTimeout = Number(
-      process.env.MINIO_PRESIGNED_TIMEOUT_MS || '3000',
-    );
-    const normalizedTimeout = Number.isFinite(configuredTimeout)
-      ? Math.floor(configuredTimeout)
-      : 3000;
-    this.presignedTimeoutMs = Math.min(10000, Math.max(500, normalizedTimeout));
 
     this.bucketMap = {
       [JenisDokumen.KTP]: this.normalizeBucket(
@@ -180,49 +159,11 @@ export class MinioService {
     };
   }
 
-  async getPresignedGetUrl(
-    bucket: string,
-    objectName: string,
-    expiresInSeconds = this.presignedExpirySeconds,
-  ) {
-    return this.withTimeout(
-      this.minioClient.presignedGetObject(bucket, objectName, expiresInSeconds),
-      this.presignedTimeoutMs,
-      `presignedGetObject timeout (${this.presignedTimeoutMs}ms)`,
-    );
+  buildAccessibleUrl(bucket: string, objectName: string) {
+    return this.buildPublicUrl(bucket, objectName);
   }
 
-  private async withTimeout<T>(
-    operation: Promise<T>,
-    timeoutMs: number,
-    timeoutMessage: string,
-  ): Promise<T> {
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutHandle = setTimeout(() => {
-        reject(new Error(timeoutMessage));
-      }, timeoutMs);
-    });
-
-    try {
-      return await Promise.race([operation, timeoutPromise]);
-    } finally {
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-      }
-    }
-  }
-
-  async buildAccessibleUrl(bucket: string, objectName: string) {
-    try {
-      return await this.getPresignedGetUrl(bucket, objectName);
-    } catch {
-      return this.buildPublicUrl(bucket, objectName);
-    }
-  }
-
-  async buildAccessibleUrlFromStoredUrl(fileUrl: string) {
+  buildAccessibleUrlFromStoredUrl(fileUrl: string) {
     const resolved = this.extractBucketAndObjectFromStoredRef(fileUrl);
     if (!resolved) {
       return fileUrl;
