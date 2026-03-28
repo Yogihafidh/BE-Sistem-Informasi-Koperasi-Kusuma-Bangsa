@@ -9,6 +9,8 @@ export default registerAs('app', () => ({
   trustProxy: process.env.TRUST_PROXY === 'true',
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
   cacheTtlDashboardSeconds:
-    Number.parseInt(process.env.CACHE_TTL_DASHBOARD_SECONDS || '600', 10) ||
+    Number.parseInt(process.env.CACHE_TTL_DASHBOARD_SECONDS || '45', 10) || 45,
+  cacheTtlSettingsSeconds:
+    Number.parseInt(process.env.CACHE_TTL_SETTINGS_SECONDS || '600', 10) ||
     600,
 }));

@@ -20,7 +20,6 @@ import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
 import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
-import { DashboardService } from '../dashboard/dashboard.service';
 import { AuditTrailService } from '../audit/audit.service';
 
 @Injectable()
@@ -30,7 +29,6 @@ export class SimpananService {
     private readonly transaksiRepository: TransaksiRepository,
     private readonly transaksiService: TransaksiService,
     private readonly settingsService: SettingsService,
-    private readonly dashboardService: DashboardService,
     private readonly auditTrailService: AuditTrailService,
     private readonly prisma: PrismaClient,
   ) {}
@@ -229,10 +227,6 @@ export class SimpananService {
         deletedAt: new Date().toISOString(),
       },
     });
-    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
-      'simpanan:softDeleteRekening',
-    );
-
     return {
       message: 'Rekening simpanan berhasil dihapus',
     };

@@ -5,6 +5,7 @@ import {
   seedDatabase,
   closeTestApp,
   getPrisma,
+  clearTestCache,
 } from '../helpers/test-app.helper';
 import {
   loginAsAdmin,
@@ -182,7 +183,11 @@ describe('Dashboard Module (Integration)', () => {
   });
 
   describe('Data Quality And Realtime Behavior', () => {
-    it('should update realtime after transaction mutation', async () => {
+    beforeEach(async () => {
+      await clearTestCache();
+    });
+
+    it('should serve cached payload within dashboard TTL after transaction mutation', async () => {
       const { rekeningList } = await createFullNasabah(app, adminToken);
       const sukarela = rekeningList.find(
         (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'SUKARELA',
@@ -201,9 +206,7 @@ describe('Dashboard Module (Integration)', () => {
         .expect(201);
 
       const after = await getDashboard();
-      expect(after.ringkasanKeuangan.simpanan).toBeGreaterThan(
-        before.ringkasanKeuangan.simpanan,
-      );
+      expect(after).toEqual(before);
     });
 
     it('should update active members after nasabah verification', async () => {

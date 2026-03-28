@@ -4,6 +4,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { StringValue } from 'ms';
@@ -28,6 +29,8 @@ import { SecurityLogService } from './security-log.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly authRepository: AuthRepository,
     private readonly jwtService: JwtService,
@@ -455,10 +458,18 @@ export class AuthService {
   }
 
   async isTokenBlacklisted(accessToken: string) {
-    const cached = await this.cacheService.getString(
-      this.getBlacklistKey(accessToken),
-    );
-    return Boolean(cached);
+    try {
+      const cached = await this.cacheService.getString(
+        this.getBlacklistKey(accessToken),
+      );
+      return Boolean(cached);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Cache blacklist tidak tersedia, gunakan fail-open policy: ${message}`,
+      );
+      return false;
+    }
   }
 
   // ==================== ROLE MANAGEMENT ====================

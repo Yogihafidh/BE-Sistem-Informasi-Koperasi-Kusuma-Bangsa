@@ -32,6 +32,10 @@ async function cleanupCache(): Promise<void> {
   }
 }
 
+export async function clearTestCache(): Promise<void> {
+  await cleanupCache();
+}
+
 export async function createTestApp(): Promise<INestApplication> {
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],

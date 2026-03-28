@@ -4,6 +4,7 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CacheService } from '../../common/cache/cache.service';
 import { UpsertSettingDto } from './dto';
 import { SettingsRepository } from './settings.repository';
@@ -24,11 +25,17 @@ type SettingEntity = {
 @Injectable()
 export class SettingsService implements OnModuleInit {
   private readonly cacheKeyAll = 'settings:all';
+  private readonly cacheTtlSeconds: number;
 
   constructor(
     private readonly settingsRepository: SettingsRepository,
     private readonly cacheService: CacheService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    const configured =
+      this.configService.get<number>('app.cacheTtlSettingsSeconds') ?? 600;
+    this.cacheTtlSeconds = Math.min(600, Math.max(300, Math.floor(configured)));
+  }
 
   async onModuleInit() {
     await this.warmCache();
@@ -82,7 +89,11 @@ export class SettingsService implements OnModuleInit {
   private async warmCache() {
     try {
       const settings = await this.loadSettingsFromDb();
-      await this.cacheService.setJson(this.cacheKeyAll, settings);
+      await this.cacheService.setJson(
+        this.cacheKeyAll,
+        settings,
+        this.cacheTtlSeconds,
+      );
     } catch {
       // Ignore cache warmup failures to avoid blocking app startup.
     }
@@ -92,12 +103,16 @@ export class SettingsService implements OnModuleInit {
     const cached = await this.cacheService.getJson<SettingEntity[]>(
       this.cacheKeyAll,
     );
-    if (cached && cached.length > 0) {
+    if (cached !== null) {
       return cached;
     }
 
     const settings = await this.loadSettingsFromDb();
-    await this.cacheService.setJson(this.cacheKeyAll, settings);
+    await this.cacheService.setJson(
+      this.cacheKeyAll,
+      settings,
+      this.cacheTtlSeconds,
+    );
     return settings;
   }
 

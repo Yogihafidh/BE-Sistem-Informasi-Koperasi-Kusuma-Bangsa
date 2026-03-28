@@ -17,7 +17,6 @@ import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
 import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
-import { DashboardService } from '../dashboard/dashboard.service';
 import { AuditTrailService } from '../audit/audit.service';
 
 @Injectable()
@@ -25,7 +24,6 @@ export class TransaksiService {
   constructor(
     private readonly transaksiRepository: TransaksiRepository,
     private readonly settingsService: SettingsService,
-    private readonly dashboardService: DashboardService,
     private readonly auditTrailService: AuditTrailService,
     private readonly prisma: PrismaClient,
   ) {}
@@ -294,10 +292,6 @@ export class TransaksiService {
       },
     });
 
-    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
-      'transaksi:create',
-    );
-
     return {
       message: 'Transaksi berhasil diproses',
       data: transaksi,
@@ -343,10 +337,6 @@ export class TransaksiService {
         deletedAt: new Date().toISOString(),
       },
     });
-    await this.dashboardService.invalidateDashboardBecauseFinancialChanged(
-      'transaksi:softDelete',
-    );
-
     return {
       message: 'Transaksi berhasil dihapus',
     };

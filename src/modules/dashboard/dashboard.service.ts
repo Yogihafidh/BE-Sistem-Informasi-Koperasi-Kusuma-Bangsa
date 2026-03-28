@@ -1,15 +1,29 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JenisSimpanan, JenisTransaksi, Prisma } from '@prisma/client';
 import { DashboardRepository } from './dashboard.repository';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
+import { CacheService } from '../../common/cache/cache.service';
 
 @Injectable()
 export class DashboardService {
+  private readonly logger = new Logger(DashboardService.name);
+  private readonly dashboardCacheTtlSeconds: number;
+
   constructor(
     private readonly dashboardRepository: DashboardRepository,
     private readonly settingsService: SettingsService,
-  ) {}
+    private readonly cacheService: CacheService,
+    private readonly configService: ConfigService,
+  ) {
+    const configured =
+      this.configService.get<number>('app.cacheTtlDashboardSeconds') ?? 45;
+    this.dashboardCacheTtlSeconds = Math.min(
+      60,
+      Math.max(30, Math.floor(configured)),
+    );
+  }
 
   private toNumber(value: Prisma.Decimal | number | bigint | null | undefined) {
     if (value === null || value === undefined) {
@@ -60,17 +74,19 @@ export class DashboardService {
     return `${monthNames[bulan - 1]} ${tahun}`;
   }
 
-  async clearDashboardCache(_source = 'unknown'): Promise<void> {
-    await Promise.resolve();
-  }
-
-  async invalidateDashboardBecauseFinancialChanged(
-    _source = 'unknown',
-  ): Promise<void> {
-    await Promise.resolve();
+  private getDashboardCacheKey(bulan: number, tahun: number) {
+    return `dashboard:${bulan}:${tahun}`;
   }
 
   async getDashboard(bulan: number, tahun: number) {
+    const cacheKey = this.getDashboardCacheKey(bulan, tahun);
+    const cached = await this.cacheService.getJson<unknown>(cacheKey);
+    if (cached !== null) {
+      this.logger.debug(`cache hit: ${cacheKey}`);
+      return cached;
+    }
+    this.logger.debug(`cache miss: ${cacheKey}`);
+
     const trendMonthsSetting = await this.settingsService.getNumber(
       SETTING_KEYS.DASHBOARD_TREND_MONTHS,
     );
@@ -242,7 +258,7 @@ export class DashboardService {
       kondisi = 'berisiko';
     }
 
-    return {
+    const payload = {
       periode: { bulan, tahun },
       ringkasanKeuangan: {
         simpanan: totalSimpanan,
@@ -272,5 +288,13 @@ export class DashboardService {
         kondisi,
       },
     };
+
+    await this.cacheService.setJson(
+      cacheKey,
+      payload,
+      this.dashboardCacheTtlSeconds,
+    );
+
+    return payload;
   }
 }
