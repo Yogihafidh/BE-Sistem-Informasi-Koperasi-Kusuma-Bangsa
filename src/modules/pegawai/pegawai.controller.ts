@@ -24,10 +24,7 @@ import {
   TogglePegawaiStatusDto,
 } from './dto';
 import { CurrentUser, Permissions } from '../../common/decorators';
-import {
-  JwtAuthGuard,
-  PermissionsGuard,
-} from '../../common/guards';
+import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import {
   ApiAuthErrors,
   ApiBadRequestExample,
@@ -90,10 +87,20 @@ export class PegawaiController {
   @Permissions('pegawai.read')
   @ApiOperation({ summary: 'Dapatkan semua pegawai' })
   @ApiQuery({
+    name: 'after',
+    required: false,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
     name: 'cursor',
     required: false,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @ApiResponse({
     status: 200,
@@ -115,8 +122,10 @@ export class PegawaiController {
           ],
           pagination: {
             nextCursor: 1,
+            prevCursor: 20,
             limit: 20,
-            hasNext: false,
+            hasNext: true,
+            hasPrev: true,
           },
         },
       },
@@ -124,9 +133,15 @@ export class PegawaiController {
   })
   @ApiAuthErrors()
   getAllPegawai(
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
-    return this.pegawaiService.getAllPegawai(cursor);
+    const effectiveAfter = after ?? cursor;
+    return this.pegawaiService.getAllPegawai({
+      after: effectiveAfter,
+      before,
+    });
   }
 
   @Get(':id')
@@ -254,4 +269,3 @@ export class PegawaiController {
     );
   }
 }
-

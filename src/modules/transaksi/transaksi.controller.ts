@@ -38,10 +38,20 @@ export class TransaksiController {
       'Mendukung cursor pagination dan filter jenis serta rentang tanggal.',
   })
   @ApiQuery({
+    name: 'after',
+    required: false,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
     name: 'cursor',
     required: false,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @ApiQuery({
     name: 'jenisTransaksi',
@@ -80,8 +90,10 @@ export class TransaksiController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -89,13 +101,16 @@ export class TransaksiController {
   })
   @ApiAuthErrors()
   listTransaksi(
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
     @Query('jenisTransaksi') jenisTransaksi?: JenisTransaksi,
     @Query('tanggalFrom') tanggalFrom?: string,
     @Query('tanggalTo') tanggalTo?: string,
   ) {
     return this.transaksiService.listTransaksi({
-      cursor,
+      after: after ?? cursor,
+      before,
       jenisTransaksi,
       tanggalFrom,
       tanggalTo,
@@ -110,10 +125,20 @@ export class TransaksiController {
     description: 'Histori transaksi milik nasabah tertentu.',
   })
   @ApiQuery({
+    name: 'after',
+    required: false,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
     name: 'cursor',
     required: false,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @ApiResponse({
     status: 200,
@@ -133,8 +158,10 @@ export class TransaksiController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -143,9 +170,14 @@ export class TransaksiController {
   @ApiAuthErrors()
   listTransaksiByNasabah(
     @Param('nasabahId', ParseIntPipe) nasabahId: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
-    return this.transaksiService.listTransaksiByNasabah(nasabahId, cursor);
+    return this.transaksiService.listTransaksiByNasabah(nasabahId, {
+      after: after ?? cursor,
+      before,
+    });
   }
 
   @Get('pegawai/:pegawaiId')
@@ -156,10 +188,20 @@ export class TransaksiController {
     description: 'Histori transaksi yang dicatat oleh pegawai tertentu.',
   })
   @ApiQuery({
+    name: 'after',
+    required: false,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
     name: 'cursor',
     required: false,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @ApiResponse({
     status: 200,
@@ -179,8 +221,10 @@ export class TransaksiController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -189,9 +233,14 @@ export class TransaksiController {
   @ApiAuthErrors()
   listTransaksiByPegawai(
     @Param('pegawaiId', ParseIntPipe) pegawaiId: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
-    return this.transaksiService.listTransaksiByPegawai(pegawaiId, cursor);
+    return this.transaksiService.listTransaksiByPegawai(pegawaiId, {
+      after: after ?? cursor,
+      before,
+    });
   }
 
   @Get(':id')

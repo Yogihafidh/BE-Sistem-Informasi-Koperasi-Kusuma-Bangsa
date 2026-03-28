@@ -18,7 +18,10 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "test:integration": "jest --config ./test/jest-integration.json --runInBand"
+    "test:integration": "jest --config ./test/jest-integration.json --runInBand",
+    "seed:dummy:koperasi:only": "node prisma/seed-dummy-koperasi.js",
+    "validate:dummy:koperasi": "node prisma/validate-dummy-koperasi.js",
+    "seed:dummy:koperasi": "npm run seed:dummy:koperasi:only && npm run validate:dummy:koperasi"
   },
   "prisma": {
     "seed": "node prisma/seed-auth.js"

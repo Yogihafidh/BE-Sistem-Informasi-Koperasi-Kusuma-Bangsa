@@ -6,6 +6,10 @@ import {
   JenisDokumen,
   JenisSimpanan,
 } from '@prisma/client';
+import {
+  CursorPageRequest,
+  CursorPageResult,
+} from '../../common/types/pagination.type';
 
 export const nasabahListSelect = Prisma.validator<Prisma.NasabahSelect>()({
   id: true,
@@ -107,33 +111,67 @@ export class NasabahRepository {
   }
 
   async findAllNasabah(
-    cursor: number | undefined,
-    take: number,
+    page: CursorPageRequest,
     status?: NasabahStatus,
-  ) {
-    const data = await this.prisma.nasabah.findMany({
-      where: {
-        deletedAt: null,
-        ...(status ? { status } : {}),
-      },
+  ): Promise<CursorPageResult<NasabahListRow>> {
+    const isBackward = typeof page.before === 'number';
+    const baseWhere: Prisma.NasabahWhereInput = {
+      deletedAt: null,
+      ...(status ? { status } : {}),
+    };
+
+    const dataWhere: Prisma.NasabahWhereInput = {
+      ...baseWhere,
+      ...(typeof page.after === 'number' ? { id: { gt: page.after } } : {}),
+      ...(typeof page.before === 'number' ? { id: { lt: page.before } } : {}),
+    };
+
+    const rows = await this.prisma.nasabah.findMany({
+      where: dataWhere,
       select: nasabahListSelect,
-      orderBy: { id: 'desc' },
-      take: take + 1,
-      ...(cursor
-        ? {
-            cursor: { id: cursor },
-            skip: 1,
-          }
-        : {}),
+      orderBy: { id: isBackward ? 'desc' : 'asc' },
+      take: page.take,
     });
 
-    let nextCursor: number | null = null;
-    if (data.length > take) {
-      const nextItem = data.pop();
-      nextCursor = nextItem?.id ?? null;
+    const data = isBackward ? [...rows].reverse() : rows;
+
+    if (data.length === 0) {
+      return {
+        data,
+        nextCursor: null,
+        prevCursor: null,
+        hasNext: false,
+        hasPrev: false,
+      };
     }
 
-    return { data, nextCursor };
+    const prevCursor = data[0].id;
+    const nextCursor = data.at(-1)!.id;
+
+    const [prevItem, nextItem] = await Promise.all([
+      this.prisma.nasabah.findFirst({
+        where: {
+          ...baseWhere,
+          id: { lt: prevCursor },
+        },
+        select: { id: true },
+      }),
+      this.prisma.nasabah.findFirst({
+        where: {
+          ...baseWhere,
+          id: { gt: nextCursor },
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    return {
+      data,
+      nextCursor,
+      prevCursor,
+      hasNext: Boolean(nextItem),
+      hasPrev: Boolean(prevItem),
+    };
   }
 
   findNasabahById(id: number) {

@@ -5,6 +5,7 @@ import {
   Prisma,
   PrismaClient,
 } from '@prisma/client';
+import { CursorPageRequest } from '../../common/types/pagination.type';
 
 @Injectable()
 export class PinjamanRepository {
@@ -118,52 +119,80 @@ export class PinjamanRepository {
 
   async listPinjamanByNasabah(args: {
     nasabahId: number;
-    cursor?: number;
-    take: number;
+    page: CursorPageRequest;
   }) {
+    const isBackward = typeof args.page.before === 'number';
+    const where: Prisma.PinjamanWhereInput = {
+      nasabahId: args.nasabahId,
+      deletedAt: null,
+      ...(typeof args.page.after === 'number'
+        ? { id: { gt: args.page.after } }
+        : {}),
+      ...(typeof args.page.before === 'number'
+        ? { id: { lt: args.page.before } }
+        : {}),
+    };
+
     const data = await this.prisma.pinjaman.findMany({
-      where: { nasabahId: args.nasabahId, deletedAt: null },
+      where,
       include: {
         verifiedBy: true,
       },
-      orderBy: { id: 'desc' },
-      take: args.take + 1,
-      ...(args.cursor
-        ? {
-            cursor: { id: args.cursor },
-            skip: 1,
-          }
-        : {}),
+      orderBy: { id: isBackward ? 'desc' : 'asc' },
+      take: args.page.take,
     });
 
-    let nextCursor: number | null = null;
-    if (data.length > args.take) {
-      const nextItem = data.pop();
-      nextCursor = nextItem?.id ?? null;
+    const rows = isBackward ? [...data].reverse() : data;
+    if (rows.length === 0) {
+      return {
+        data: rows,
+        nextCursor: null,
+        prevCursor: null,
+        hasNext: false,
+        hasPrev: false,
+      };
     }
 
-    return { data, nextCursor };
+    const prevCursor = rows[0].id;
+    const nextCursor = rows.at(-1)!.id;
+
+    const [prevItem, nextItem] = await Promise.all([
+      this.prisma.pinjaman.findFirst({
+        where: {
+          nasabahId: args.nasabahId,
+          deletedAt: null,
+          id: { lt: prevCursor },
+        },
+        select: { id: true },
+      }),
+      this.prisma.pinjaman.findFirst({
+        where: {
+          nasabahId: args.nasabahId,
+          deletedAt: null,
+          id: { gt: nextCursor },
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    return {
+      data: rows,
+      nextCursor,
+      prevCursor,
+      hasNext: Boolean(nextItem),
+      hasPrev: Boolean(prevItem),
+    };
   }
 
-  listAllPinjaman(args: {
-    status?: PinjamanStatus;
+  private buildNominalCursorFilter(args: {
     nominalSort: Prisma.SortOrder;
-    take: number;
-    cursorNominal?: Prisma.Decimal;
-    cursorId?: number;
-  }) {
-    const where: Prisma.PinjamanWhereInput = {
-      deletedAt: null,
-      ...(args.status ? { status: args.status } : {}),
-    };
-
-    const hasCursor =
-      typeof args.cursorId === 'number' && args.cursorNominal !== undefined;
-    let cursorFilter: Prisma.PinjamanWhereInput | undefined;
-
-    if (hasCursor) {
-      if (args.nominalSort === Prisma.SortOrder.asc) {
-        cursorFilter = {
+    cursorNominal: Prisma.Decimal;
+    cursorId: number;
+    direction: 'after' | 'before';
+  }): Prisma.PinjamanWhereInput {
+    if (args.nominalSort === Prisma.SortOrder.asc) {
+      if (args.direction === 'after') {
+        return {
           OR: [
             { jumlahPinjaman: { gt: args.cursorNominal } },
             {
@@ -174,32 +203,184 @@ export class PinjamanRepository {
             },
           ],
         };
-      } else {
-        cursorFilter = {
+      }
+
+      return {
+        OR: [
+          { jumlahPinjaman: { lt: args.cursorNominal } },
+          {
+            AND: [
+              { jumlahPinjaman: args.cursorNominal },
+              { id: { lt: args.cursorId } },
+            ],
+          },
+        ],
+      };
+    }
+
+    if (args.direction === 'after') {
+      return {
+        OR: [
+          { jumlahPinjaman: { lt: args.cursorNominal } },
+          {
+            AND: [
+              { jumlahPinjaman: args.cursorNominal },
+              { id: { lt: args.cursorId } },
+            ],
+          },
+        ],
+      };
+    }
+
+    return {
+      OR: [
+        { jumlahPinjaman: { gt: args.cursorNominal } },
+        {
+          AND: [
+            { jumlahPinjaman: args.cursorNominal },
+            { id: { gt: args.cursorId } },
+          ],
+        },
+      ],
+    };
+  }
+
+  private buildNominalBoundaryFilter(args: {
+    nominalSort: Prisma.SortOrder;
+    nominal: Prisma.Decimal;
+    id: number;
+    side: 'prev' | 'next';
+  }): Prisma.PinjamanWhereInput {
+    if (args.nominalSort === Prisma.SortOrder.asc) {
+      if (args.side === 'prev') {
+        return {
           OR: [
-            { jumlahPinjaman: { lt: args.cursorNominal } },
+            { jumlahPinjaman: { lt: args.nominal } },
             {
-              AND: [
-                { jumlahPinjaman: args.cursorNominal },
-                { id: { lt: args.cursorId } },
-              ],
+              AND: [{ jumlahPinjaman: args.nominal }, { id: { lt: args.id } }],
             },
           ],
         };
       }
+
+      return {
+        OR: [
+          { jumlahPinjaman: { gt: args.nominal } },
+          {
+            AND: [{ jumlahPinjaman: args.nominal }, { id: { gt: args.id } }],
+          },
+        ],
+      };
+    }
+
+    if (args.side === 'prev') {
+      return {
+        OR: [
+          { jumlahPinjaman: { gt: args.nominal } },
+          {
+            AND: [{ jumlahPinjaman: args.nominal }, { id: { gt: args.id } }],
+          },
+        ],
+      };
+    }
+
+    return {
+      OR: [
+        { jumlahPinjaman: { lt: args.nominal } },
+        {
+          AND: [{ jumlahPinjaman: args.nominal }, { id: { lt: args.id } }],
+        },
+      ],
+    };
+  }
+
+  listAllPinjaman(args: {
+    status?: PinjamanStatus;
+    nominalSort: Prisma.SortOrder;
+    page: CursorPageRequest;
+    cursorNominal?: Prisma.Decimal;
+    cursorId?: number;
+  }) {
+    const where: Prisma.PinjamanWhereInput = {
+      deletedAt: null,
+      ...(args.status ? { status: args.status } : {}),
+    };
+
+    const baseOrder = args.nominalSort;
+    const isBackward = typeof args.page.before === 'number';
+    const reversedOrder =
+      baseOrder === Prisma.SortOrder.asc
+        ? Prisma.SortOrder.desc
+        : Prisma.SortOrder.asc;
+    const queryOrder = isBackward ? reversedOrder : baseOrder;
+
+    const hasCursor =
+      typeof args.cursorId === 'number' && args.cursorNominal !== undefined;
+    let cursorFilter: Prisma.PinjamanWhereInput | undefined;
+
+    if (hasCursor) {
+      cursorFilter = this.buildNominalCursorFilter({
+        nominalSort: baseOrder,
+        cursorNominal: args.cursorNominal as Prisma.Decimal,
+        cursorId: args.cursorId as number,
+        direction: isBackward ? 'before' : 'after',
+      });
     }
 
     return this.prisma.pinjaman.findMany({
-      where: {
-        ...where,
-        ...(cursorFilter ? { AND: [cursorFilter] } : {}),
-      },
+      where: { ...where, ...(cursorFilter ? { AND: [cursorFilter] } : {}) },
       include: {
         nasabah: true,
         verifiedBy: true,
       },
-      orderBy: [{ jumlahPinjaman: args.nominalSort }, { id: args.nominalSort }],
-      take: args.take + 1,
+      orderBy: [{ jumlahPinjaman: queryOrder }, { id: queryOrder }],
+      take: args.page.take,
+    });
+  }
+
+  findPinjamanPrevByNominalBoundary(args: {
+    status?: PinjamanStatus;
+    nominalSort: Prisma.SortOrder;
+    nominal: Prisma.Decimal;
+    id: number;
+  }) {
+    return this.prisma.pinjaman.findFirst({
+      where: {
+        deletedAt: null,
+        ...(args.status ? { status: args.status } : {}),
+        AND: [
+          this.buildNominalBoundaryFilter({
+            nominalSort: args.nominalSort,
+            nominal: args.nominal,
+            id: args.id,
+            side: 'prev',
+          }),
+        ],
+      },
+      select: { id: true },
+    });
+  }
+
+  findPinjamanNextByNominalBoundary(args: {
+    status?: PinjamanStatus;
+    nominalSort: Prisma.SortOrder;
+    nominal: Prisma.Decimal;
+    id: number;
+  }) {
+    return this.prisma.pinjaman.findFirst({
+      where: {
+        deletedAt: null,
+        ...(args.status ? { status: args.status } : {}),
+        AND: [
+          this.buildNominalBoundaryFilter({
+            nominalSort: args.nominalSort,
+            nominal: args.nominal,
+            id: args.id,
+            side: 'next',
+          }),
+        ],
+      },
+      select: { id: true },
     });
   }
 

@@ -93,10 +93,20 @@ export class NasabahController {
   @Permissions('nasabah.read')
   @ApiOperation({ summary: 'Dapatkan semua nasabah' })
   @ApiQuery({
+    name: 'after',
+    required: false,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
     name: 'cursor',
     required: false,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @ApiQuery({
     name: 'status',
@@ -126,8 +136,10 @@ export class NasabahController {
           ],
           pagination: {
             nextCursor: 1,
+            prevCursor: 20,
             limit: 20,
-            hasNext: false,
+            hasNext: true,
+            hasPrev: true,
           },
         },
       },
@@ -135,11 +147,17 @@ export class NasabahController {
   })
   @ApiAuthErrors()
   getAllNasabah(
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
     @Query('status', new ParseEnumPipe(NasabahStatus, { optional: true }))
     status?: NasabahStatus,
   ) {
-    return this.nasabahService.getAllNasabah(cursor, status);
+    const effectiveAfter = after ?? cursor;
+    return this.nasabahService.getAllNasabah(
+      { after: effectiveAfter, before },
+      status,
+    );
   }
 
   @Get(':id')

@@ -283,7 +283,8 @@ export class TransaksiService {
   }
 
   async listTransaksi(args: {
-    cursor?: number;
+    after?: number;
+    before?: number;
     jenisTransaksi?: JenisTransaksi;
     tanggalFrom?: string;
     tanggalTo?: string;
@@ -292,32 +293,47 @@ export class TransaksiService {
       ? new Date(args.tanggalFrom)
       : undefined;
     const tanggalTo = args.tanggalTo ? new Date(args.tanggalTo) : undefined;
+    const before = typeof args.after === 'number' ? undefined : args.before;
 
-    const { data, nextCursor } = await this.transaksiRepository.listTransaksi({
-      cursor: args.cursor,
-      take: DEFAULT_PAGE_SIZE,
-      jenisTransaksi: args.jenisTransaksi,
-      tanggalFrom,
-      tanggalTo,
-    });
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
+      await this.transaksiRepository.listTransaksi({
+        page: {
+          after: args.after,
+          before,
+          take: DEFAULT_PAGE_SIZE,
+        },
+        jenisTransaksi: args.jenisTransaksi,
+        tanggalFrom,
+        tanggalTo,
+      });
 
     return {
       message: 'Berhasil mengambil data transaksi',
       data,
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }
 
-  async listTransaksiByNasabah(nasabahId: number, cursor?: number) {
-    const { data, nextCursor } =
+  async listTransaksiByNasabah(
+    nasabahId: number,
+    args: { after?: number; before?: number },
+  ) {
+    const before = typeof args.after === 'number' ? undefined : args.before;
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByNasabah({
         nasabahId,
-        cursor,
-        take: DEFAULT_PAGE_SIZE,
+        page: {
+          after: args.after,
+          before,
+          take: DEFAULT_PAGE_SIZE,
+        },
       });
 
     return {
@@ -325,18 +341,28 @@ export class TransaksiService {
       data,
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }
 
-  async listTransaksiByPegawai(pegawaiId: number, cursor?: number) {
-    const { data, nextCursor } =
+  async listTransaksiByPegawai(
+    pegawaiId: number,
+    args: { after?: number; before?: number },
+  ) {
+    const before = typeof args.after === 'number' ? undefined : args.before;
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByPegawai({
         pegawaiId,
-        cursor,
-        take: DEFAULT_PAGE_SIZE,
+        page: {
+          after: args.after,
+          before,
+          take: DEFAULT_PAGE_SIZE,
+        },
       });
 
     return {
@@ -344,18 +370,28 @@ export class TransaksiService {
       data,
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }
 
-  async listTransaksiByRekening(rekeningSimpananId: number, cursor?: number) {
-    const { data, nextCursor } =
+  async listTransaksiByRekening(
+    rekeningSimpananId: number,
+    args: { after?: number; before?: number },
+  ) {
+    const before = typeof args.after === 'number' ? undefined : args.before;
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByRekening({
         rekeningSimpananId,
-        cursor,
-        take: DEFAULT_PAGE_SIZE,
+        page: {
+          after: args.after,
+          before,
+          take: DEFAULT_PAGE_SIZE,
+        },
       });
 
     return {
@@ -363,13 +399,18 @@ export class TransaksiService {
       data,
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }
 
-  async listTransaksiByPinjaman(pinjamanId: number, cursor?: number) {
+  async listTransaksiByPinjaman(
+    pinjamanId: number,
+    args: { after?: number; before?: number },
+  ) {
     const pinjaman =
       await this.transaksiRepository.findPinjamanByIdOnly(pinjamanId);
 
@@ -377,11 +418,16 @@ export class TransaksiService {
       throw new NotFoundException('Pinjaman tidak ditemukan');
     }
 
-    const { data, nextCursor } =
+    const before = typeof args.after === 'number' ? undefined : args.before;
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByPinjaman({
         pinjamanId,
-        cursor,
-        take: DEFAULT_PAGE_SIZE,
+        page: {
+          after: args.after,
+          before,
+          take: DEFAULT_PAGE_SIZE,
+        },
       });
 
     return {
@@ -389,8 +435,10 @@ export class TransaksiService {
       data,
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }

@@ -110,19 +110,25 @@ export class PegawaiService {
     };
   }
 
-  async getAllPegawai(cursor?: number) {
-    const { data, nextCursor } = await this.pegawaiRepository.findAllPegawai(
-      cursor,
-      DEFAULT_PAGE_SIZE,
-    );
+  async getAllPegawai(args: { after?: number; before?: number }) {
+    const before = typeof args.after === 'number' ? undefined : args.before;
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
+      await this.pegawaiRepository.findAllPegawai({
+        after: args.after,
+        before,
+        take: DEFAULT_PAGE_SIZE,
+      });
 
     return {
       message: 'Berhasil mengambil data pegawai',
       data: data.map((item) => this.toPegawaiListDto(item)),
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }

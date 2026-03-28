@@ -259,20 +259,31 @@ export class NasabahService {
     };
   }
 
-  async getAllNasabah(cursor?: number, status?: NasabahStatus) {
-    const { data, nextCursor } = await this.nasabahRepository.findAllNasabah(
-      cursor,
-      DEFAULT_PAGE_SIZE,
-      status,
-    );
+  async getAllNasabah(
+    args: { after?: number; before?: number },
+    status?: NasabahStatus,
+  ) {
+    const before = typeof args.after === 'number' ? undefined : args.before;
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
+      await this.nasabahRepository.findAllNasabah(
+        {
+          after: args.after,
+          before,
+          take: DEFAULT_PAGE_SIZE,
+        },
+        status,
+      );
 
     return {
       message: 'Berhasil mengambil data nasabah',
       data: data.map((item) => this.toNasabahListDto(item)),
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }

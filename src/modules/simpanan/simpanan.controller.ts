@@ -150,10 +150,20 @@ export class SimpananController {
   @Permissions('simpanan.read')
   @ApiOperation({ summary: 'Histori transaksi simpanan' })
   @ApiQuery({
+    name: 'after',
+    required: false,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
     name: 'cursor',
     required: false,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @ApiResponse({
     status: 200,
@@ -173,8 +183,10 @@ export class SimpananController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -184,9 +196,14 @@ export class SimpananController {
   @ApiAuthErrors()
   listTransaksiByRekening(
     @Param('id', ParseIntPipe) id: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
-    return this.simpananService.listTransaksiByRekening(id, cursor);
+    return this.simpananService.listTransaksiByRekening(id, {
+      after: after ?? cursor,
+      before,
+    });
   }
 
   @Delete('rekening/:id')

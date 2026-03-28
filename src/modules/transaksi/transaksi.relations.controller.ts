@@ -15,10 +15,7 @@ import {
 } from '@nestjs/swagger';
 import { TransaksiService } from './transaksi.service';
 import { Permissions } from '../../common/decorators';
-import {
-  JwtAuthGuard,
-  PermissionsGuard,
-} from '../../common/guards';
+import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import { ApiAuthErrors } from '../../common/decorators/api-docs.decorator';
 
 @ApiTags('transaksi')
@@ -35,10 +32,20 @@ export class TransaksiRelationsController {
     description: 'Histori transaksi setoran/penarikan pada rekening simpanan.',
   })
   @ApiQuery({
+    name: 'after',
+    required: false,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
     name: 'cursor',
     required: false,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @ApiResponse({
     status: 200,
@@ -58,8 +65,10 @@ export class TransaksiRelationsController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -68,9 +77,14 @@ export class TransaksiRelationsController {
   @ApiAuthErrors()
   listTransaksiByRekening(
     @Param('id', ParseIntPipe) id: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
-    return this.transaksiService.listTransaksiByRekening(id, cursor);
+    return this.transaksiService.listTransaksiByRekening(id, {
+      after: after ?? cursor,
+      before,
+    });
   }
 
   @Get('pinjaman/:id/transaksi')
@@ -81,10 +95,20 @@ export class TransaksiRelationsController {
     description: 'Histori transaksi pencairan/angsuran pada pinjaman tertentu.',
   })
   @ApiQuery({
+    name: 'after',
+    required: false,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
     name: 'cursor',
     required: false,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @ApiResponse({
     status: 200,
@@ -104,8 +128,10 @@ export class TransaksiRelationsController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -114,9 +140,13 @@ export class TransaksiRelationsController {
   @ApiAuthErrors()
   listTransaksiByPinjaman(
     @Param('id', ParseIntPipe) id: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
-    return this.transaksiService.listTransaksiByPinjaman(id, cursor);
+    return this.transaksiService.listTransaksiByPinjaman(id, {
+      after: after ?? cursor,
+      before,
+    });
   }
 }
-

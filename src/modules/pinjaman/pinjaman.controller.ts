@@ -52,11 +52,23 @@ export class PinjamanController {
       'Mendukung filter berdasarkan status, sorting nominal pinjaman, dan cursor-based pagination.',
   })
   @ApiQuery({
+    name: 'after',
+    required: false,
+    example: 130,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    example: 130,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
     name: 'cursor',
     required: false,
     example: 130,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @ApiQuery({
     name: 'status',
@@ -95,7 +107,9 @@ export class PinjamanController {
               pagination: {
                 limit: 20,
                 nextCursor: 101,
+                prevCursor: 121,
                 hasNext: true,
+                hasPrev: true,
               },
             },
           },
@@ -128,7 +142,9 @@ export class PinjamanController {
               pagination: {
                 limit: 20,
                 nextCursor: null,
+                prevCursor: 129,
                 hasNext: false,
+                hasPrev: true,
               },
             },
           },
@@ -252,10 +268,20 @@ export class PinjamanController {
   @Permissions('pinjaman.read')
   @ApiOperation({ summary: 'Dapatkan pinjaman per nasabah' })
   @ApiQuery({
+    name: 'after',
+    required: false,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
     name: 'cursor',
     required: false,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @ApiResponse({
     status: 200,
@@ -276,8 +302,10 @@ export class PinjamanController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -286,9 +314,14 @@ export class PinjamanController {
   @ApiAuthErrors()
   listPinjamanByNasabah(
     @Param('nasabahId', ParseIntPipe) nasabahId: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
-    return this.pinjamanService.listPinjamanByNasabah(nasabahId, cursor);
+    return this.pinjamanService.listPinjamanByNasabah(nasabahId, {
+      after: after ?? cursor,
+      before,
+    });
   }
 
   @Patch(':id/verifikasi')
@@ -417,10 +450,20 @@ export class PinjamanController {
   @Permissions('pinjaman.read')
   @ApiOperation({ summary: 'Histori transaksi pinjaman' })
   @ApiQuery({
+    name: 'after',
+    required: false,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @ApiQuery({
     name: 'cursor',
     required: false,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @ApiResponse({
     status: 200,
@@ -447,8 +490,10 @@ export class PinjamanController {
           ],
           pagination: {
             nextCursor: null,
+            prevCursor: null,
             limit: 20,
             hasNext: false,
+            hasPrev: false,
           },
         },
       },
@@ -458,9 +503,14 @@ export class PinjamanController {
   @ApiAuthErrors()
   listTransaksiByPinjaman(
     @Param('id', ParseIntPipe) id: number,
+    @Query('after', new ParseIntPipe({ optional: true })) after?: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
-    return this.pinjamanService.listTransaksiByPinjaman(id, cursor);
+    return this.pinjamanService.listTransaksiByPinjaman(id, {
+      after: after ?? cursor,
+      before,
+    });
   }
 
   @Delete(':id')

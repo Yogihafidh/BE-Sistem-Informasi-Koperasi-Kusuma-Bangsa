@@ -11,8 +11,28 @@ export enum PinjamanNominalSort {
 export class ListPinjamanQueryDto {
   @ApiPropertyOptional({
     example: 130,
+    description: 'Cursor maju. Ambil data setelah ID ini.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  after?: number;
+
+  @ApiPropertyOptional({
+    example: 130,
+    description: 'Cursor mundur. Ambil data sebelum ID ini.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  before?: number;
+
+  @ApiPropertyOptional({
+    example: 130,
     description:
-      'ID terakhir dari halaman sebelumnya (cursor). Kosongkan untuk halaman pertama.',
+      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
   })
   @IsOptional()
   @Type(() => Number)

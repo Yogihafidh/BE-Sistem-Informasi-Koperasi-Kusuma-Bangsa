@@ -162,17 +162,25 @@ export class SimpananService {
     );
   }
 
-  async listTransaksiByRekening(rekeningId: number, cursor?: number) {
+  async listTransaksiByRekening(
+    rekeningId: number,
+    args: { after?: number; before?: number },
+  ) {
+    const before = typeof args.after === 'number' ? undefined : args.before;
+
     const rekening = await this.simpananRepository.findRekeningById(rekeningId);
     if (!rekening) {
       throw new NotFoundException('Rekening simpanan tidak ditemukan');
     }
 
-    const { data, nextCursor } =
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByRekening({
         rekeningSimpananId: rekeningId,
-        cursor,
-        take: DEFAULT_PAGE_SIZE,
+        page: {
+          after: args.after,
+          before,
+          take: DEFAULT_PAGE_SIZE,
+        },
       });
 
     return {
@@ -180,8 +188,10 @@ export class SimpananService {
       data,
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }

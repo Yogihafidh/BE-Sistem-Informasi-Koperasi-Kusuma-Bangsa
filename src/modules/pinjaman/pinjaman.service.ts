@@ -140,12 +140,20 @@ export class PinjamanService {
     };
   }
 
-  async listPinjamanByNasabah(nasabahId: number, cursor?: number) {
-    const { data, nextCursor } =
+  async listPinjamanByNasabah(
+    nasabahId: number,
+    args: { after?: number; before?: number },
+  ) {
+    const before = typeof args.after === 'number' ? undefined : args.before;
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.pinjamanRepository.listPinjamanByNasabah({
         nasabahId,
-        cursor,
-        take: DEFAULT_PAGE_SIZE,
+        page: {
+          after: args.after,
+          before,
+          take: DEFAULT_PAGE_SIZE,
+        },
       });
 
     const sanitizedData = data.map(({ verifiedById, ...item }) => item);
@@ -155,19 +163,26 @@ export class PinjamanService {
       data: sanitizedData,
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }
 
   async listAllPinjaman(query: ListPinjamanQueryDto) {
     const limit = DEFAULT_PAGE_SIZE;
-    let cursorNominal: Prisma.Decimal | undefined;
+    const after = query.after ?? query.cursor;
+    const before = typeof after === 'number' ? undefined : query.before;
 
-    if (query.cursor) {
+    let cursorNominal: Prisma.Decimal | undefined;
+    let cursorId: number | undefined;
+
+    if (typeof after === 'number' || typeof before === 'number') {
+      cursorId = (after ?? before) as number;
       const anchor = await this.pinjamanRepository.findPinjamanCursorAnchor(
-        query.cursor,
+        cursorId,
         query.status,
       );
 
@@ -184,21 +199,52 @@ export class PinjamanService {
         query.sort === PinjamanNominalSort.ASC
           ? Prisma.SortOrder.asc
           : Prisma.SortOrder.desc,
-      take: limit,
+      page: {
+        after,
+        before,
+        take: limit,
+      },
       cursorNominal,
-      cursorId: query.cursor,
+      cursorId,
     });
 
+    const sortedRows = typeof before === 'number' ? [...rows].reverse() : rows;
+
     let nextCursor: number | null = null;
-    if (rows.length > limit) {
-      rows.pop();
-      const lastReturnedItem = rows.at(-1);
-      if (lastReturnedItem) {
-        nextCursor = lastReturnedItem.id;
-      }
+    let prevCursor: number | null = null;
+    let hasNext = false;
+    let hasPrev = false;
+
+    if (sortedRows.length > 0) {
+      prevCursor = sortedRows[0].id;
+      const lastRow = sortedRows.at(-1)!;
+      nextCursor = lastRow.id;
+
+      const nominalSort =
+        query.sort === PinjamanNominalSort.ASC
+          ? Prisma.SortOrder.asc
+          : Prisma.SortOrder.desc;
+
+      const [prevItem, nextItem] = await Promise.all([
+        this.pinjamanRepository.findPinjamanPrevByNominalBoundary({
+          status: query.status,
+          nominalSort,
+          nominal: sortedRows[0].jumlahPinjaman,
+          id: sortedRows[0].id,
+        }),
+        this.pinjamanRepository.findPinjamanNextByNominalBoundary({
+          status: query.status,
+          nominalSort,
+          nominal: lastRow.jumlahPinjaman,
+          id: lastRow.id,
+        }),
+      ]);
+
+      hasPrev = Boolean(prevItem);
+      hasNext = Boolean(nextItem);
     }
 
-    const simplifiedData = rows.map((item) => ({
+    const simplifiedData = sortedRows.map((item) => ({
       id: item.id,
       jumlahPinjaman: String(item.jumlahPinjaman),
       bungaPersen: String(item.bungaPersen),
@@ -215,7 +261,9 @@ export class PinjamanService {
       pagination: {
         limit,
         nextCursor,
-        hasNext: nextCursor !== null,
+        prevCursor,
+        hasNext,
+        hasPrev,
       },
     };
   }
@@ -448,17 +496,25 @@ export class PinjamanService {
     );
   }
 
-  async listTransaksiByPinjaman(pinjamanId: number, cursor?: number) {
+  async listTransaksiByPinjaman(
+    pinjamanId: number,
+    args: { after?: number; before?: number },
+  ) {
     const pinjaman = await this.pinjamanRepository.findPinjamanById(pinjamanId);
     if (!pinjaman) {
       throw new NotFoundException('Pinjaman tidak ditemukan');
     }
 
-    const { data, nextCursor } =
+    const before = typeof args.after === 'number' ? undefined : args.before;
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByPinjaman({
         pinjamanId,
-        cursor,
-        take: DEFAULT_PAGE_SIZE,
+        page: {
+          after: args.after,
+          before,
+          take: DEFAULT_PAGE_SIZE,
+        },
       });
 
     return {
@@ -466,8 +522,10 @@ export class PinjamanService {
       data,
       pagination: {
         nextCursor,
+        prevCursor,
         limit: DEFAULT_PAGE_SIZE,
-        hasNext: nextCursor !== null,
+        hasNext,
+        hasPrev,
       },
     };
   }
