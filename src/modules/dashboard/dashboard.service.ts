@@ -1,40 +1,26 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable } from '@nestjs/common';
 import {
   JenisSimpanan,
   JenisTransaksi,
-  NasabahStatus,
   Prisma,
 } from '@prisma/client';
 import { DashboardRepository } from './dashboard.repository';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
-import { CacheService } from '../../common/cache/cache.service';
-
-const DASHBOARD_KEYS_REGISTRY = 'dashboard:keys';
-const DASHBOARD_REGISTRY_TTL_SECONDS = 60 * 60 * 24;
-const DASHBOARD_INVALIDATION_VERSION_KEY = 'dashboard:invalidation:version';
-const DASHBOARD_INVALIDATION_RETRY_ATTEMPTS = 3;
-const DASHBOARD_INVALIDATION_RETRY_DELAY_MS = 100;
 
 @Injectable()
 export class DashboardService {
-  private static readonly CACHE_KEY = {
-    PREFIX: 'dashboard',
-  } as const;
-
-  private readonly logger = new Logger(DashboardService.name);
-
   constructor(
     private readonly dashboardRepository: DashboardRepository,
     private readonly settingsService: SettingsService,
-    private readonly cacheService: CacheService,
-    private readonly configService: ConfigService,
   ) {}
 
-  private toNumber(value: Prisma.Decimal | number | null | undefined) {
+  private toNumber(value: Prisma.Decimal | number | bigint | null | undefined) {
     if (value === null || value === undefined) {
       return 0;
+    }
+    if (typeof value === 'bigint') {
+      return Number(value);
     }
     return value instanceof Prisma.Decimal ? value.toNumber() : Number(value);
   }
@@ -45,16 +31,20 @@ export class DashboardService {
     return { start, end };
   }
 
-  private shiftMonth(bulan: number, tahun: number, offset: number) {
-    const date = new Date(tahun, bulan - 1, 1);
-    date.setMonth(date.getMonth() + offset);
-    return { bulan: date.getMonth() + 1, tahun: date.getFullYear() };
+  private getTrendRange(bulan: number, tahun: number, trendMonths: number) {
+    const endMonth = new Date(Date.UTC(tahun, bulan - 1, 1));
+    const startMonth = new Date(
+      Date.UTC(tahun, bulan - trendMonths, 1),
+    );
+
+    return { startMonth, endMonth };
   }
 
-  private calculateGrowth(current: number, previous: number) {
+  private calculateGrowth(current: number, previous: number): number {
     if (previous <= 0) {
-      return null;
+      return 0;
     }
+
     return (current - previous) / previous;
   }
 
@@ -76,357 +66,213 @@ export class DashboardService {
     return `${monthNames[bulan - 1]} ${tahun}`;
   }
 
-  private getCacheKey(bulan: number, tahun: number) {
-    return `${DashboardService.CACHE_KEY.PREFIX}:${tahun}:${bulan}`;
-  }
-
-  private getVersionedCacheKey(bulan: number, tahun: number, version: number) {
-    return `${this.getCacheKey(bulan, tahun)}:v:${version}`;
-  }
-
-  private async getInvalidationVersion() {
-    const rawVersion = await this.cacheService.getString(
-      DASHBOARD_INVALIDATION_VERSION_KEY,
-    );
-    const parsedVersion = Number.parseInt(rawVersion ?? '0', 10);
-    if (!Number.isFinite(parsedVersion) || parsedVersion < 0) {
-      return 0;
-    }
-
-    return parsedVersion;
-  }
-
-  private async bumpInvalidationVersion() {
-    const currentVersion = await this.getInvalidationVersion();
-    await this.cacheService.setString(
-      DASHBOARD_INVALIDATION_VERSION_KEY,
-      String(currentVersion + 1),
-    );
-  }
-
-  private getCacheTtlSeconds() {
-    return (
-      this.configService.get<number>('app.cacheTtlDashboardSeconds') ?? 600
-    );
-  }
-
-  private wait(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  private async runWithRetry<T>(
-    taskName: string,
-    source: string,
-    runner: () => Promise<T>,
-    attempts = DASHBOARD_INVALIDATION_RETRY_ATTEMPTS,
-  ) {
-    let lastError: unknown = null;
-
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      try {
-        const result = await runner();
-        if (attempt > 1) {
-          this.logger.log({
-            event: 'dashboard.invalidate.retry.succeeded',
-            source,
-            taskName,
-            attempt,
-            attempts,
-            timestamp: new Date().toISOString(),
-          });
-        }
-
-        return result;
-      } catch (error) {
-        lastError = error;
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        this.logger.warn({
-          event: 'dashboard.invalidate.retry.failed',
-          source,
-          taskName,
-          attempt,
-          attempts,
-          timestamp: new Date().toISOString(),
-          error: errorMessage,
-        });
-
-        if (attempt < attempts) {
-          await this.wait(DASHBOARD_INVALIDATION_RETRY_DELAY_MS * attempt);
-        }
-      }
-    }
-
-    throw lastError;
-  }
-
-  async clearDashboardCache(source = 'unknown'): Promise<void> {
-    const clearResult = await this.runWithRetry(
-      'clearRegisteredKeys',
-      source,
-      () =>
-        this.cacheService.clearRegisteredKeys(
-          DASHBOARD_KEYS_REGISTRY,
-          DASHBOARD_REGISTRY_TTL_SECONDS,
-        ),
-    );
-
-    await this.runWithRetry('bumpInvalidationVersion', source, () =>
-      this.bumpInvalidationVersion(),
-    );
-
-    const keysAfterClear = await this.cacheService.getRegisteredKeys(
-      DASHBOARD_KEYS_REGISTRY,
-    );
-
-    if (keysAfterClear.length > 0) {
-      this.logger.warn({
-        event: 'dashboard.registry.drift.detected',
-        source,
-        timestamp: new Date().toISOString(),
-        remainingKeyCount: keysAfterClear.length,
-      });
-    }
-
-    this.logger.log({
-      event: 'dashboard.registry.clear.summary',
-      source,
-      timestamp: new Date().toISOString(),
-      deletedCount: clearResult.deletedCount,
-      failedKeyCount: clearResult.failedKeys.length,
-    });
+  async clearDashboardCache(_source = 'unknown'): Promise<void> {
+    await Promise.resolve();
   }
 
   async invalidateDashboardBecauseFinancialChanged(
-    source = 'unknown',
+    _source = 'unknown',
   ): Promise<void> {
-    const timestamp = new Date().toISOString();
-    try {
-      await this.clearDashboardCache(source);
-      this.logger.log({
-        event: 'dashboard.invalidate',
-        source,
-        timestamp,
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      this.logger.warn({
-        event: 'dashboard.invalidate.failed',
-        source,
-        timestamp,
-        error: errorMessage,
-      });
-    }
+    await Promise.resolve();
   }
 
   async getDashboard(bulan: number, tahun: number) {
-    const invalidationVersion = await this.getInvalidationVersion();
-    const cacheKey = this.getVersionedCacheKey(
-      bulan,
-      tahun,
-      invalidationVersion,
-    );
-
-    const cached =
-      await this.cacheService.getJson<Record<string, unknown>>(cacheKey);
-    if (cached) {
-      return cached;
-    }
-
     const trendMonthsSetting = await this.settingsService.getNumber(
       SETTING_KEYS.DASHBOARD_TREND_MONTHS,
     );
     const trendMonths = Math.max(1, Math.floor(trendMonthsSetting));
 
     const { start, end } = this.getMonthRange(bulan, tahun);
+    const previous = this.getMonthRange(
+      bulan === 1 ? 12 : bulan - 1,
+      bulan === 1 ? tahun - 1 : tahun,
+    );
+    const trendRange = this.getTrendRange(bulan, tahun, trendMonths);
 
     const [
-      totalSimpananAgg,
-      totalOutstandingAgg,
-      setoranAgg,
-      penarikanAgg,
-      angsuranAgg,
+      currentGroupedTransaksi,
+      currentTotalTransaksi,
+      previousTotalTransaksi,
       saldoGrouped,
+      totalOutstandingAgg,
       topOutstanding,
-      totalAnggota,
-      anggotaAktif,
+      totalNasabah,
+      aktifNasabah,
+      nasabahBaru,
+      nasabahKeluar,
+      cashflowTrendRows,
+      keanggotaanTrendRows,
     ] = await Promise.all([
-      this.dashboardRepository.sumSaldoSimpanan(),
-      this.dashboardRepository.sumPinjamanAktifNominal(),
-      this.dashboardRepository.sumTransaksiNominal({
-        jenisTransaksi: JenisTransaksi.SETORAN,
+      this.dashboardRepository.groupTransaksiByJenis({
         tanggalFrom: start,
         tanggalTo: end,
       }),
-      this.dashboardRepository.sumTransaksiNominal({
-        jenisTransaksi: JenisTransaksi.PENARIKAN,
+      this.dashboardRepository.countTransaksi({
         tanggalFrom: start,
         tanggalTo: end,
       }),
-      this.dashboardRepository.sumTransaksiNominal({
-        jenisTransaksi: JenisTransaksi.ANGSURAN,
-        tanggalFrom: start,
-        tanggalTo: end,
+      this.dashboardRepository.countTransaksi({
+        tanggalFrom: previous.start,
+        tanggalTo: previous.end,
       }),
       this.dashboardRepository.groupSaldoSimpananByJenis(),
+      this.dashboardRepository.sumPinjamanAktifNominal(),
       this.dashboardRepository.listTopOutstandingPinjaman(5),
-      this.dashboardRepository.countNasabah({ deletedAt: null }),
-      this.dashboardRepository.countNasabah({
-        deletedAt: null,
-        status: NasabahStatus.AKTIF,
+      this.dashboardRepository.countNasabahTotal(),
+      this.dashboardRepository.countNasabahAktif(),
+      this.dashboardRepository.countNasabahBaru({
+        tanggalFrom: start,
+        tanggalTo: end,
+      }),
+      this.dashboardRepository.countNasabahKeluar({
+        tanggalFrom: start,
+        tanggalTo: end,
+      }),
+      this.dashboardRepository.getCashflowTrend({
+        startMonth: trendRange.startMonth,
+        endMonth: trendRange.endMonth,
+      }),
+      this.dashboardRepository.getKeanggotaanTrend({
+        startMonth: trendRange.startMonth,
+        endMonth: trendRange.endMonth,
       }),
     ]);
 
-    const totalSimpanan = this.toNumber(totalSimpananAgg._sum.saldoBerjalan);
-    const totalOutstandingPinjaman = this.toNumber(
+    const nominalByJenis = (rows: typeof currentGroupedTransaksi) => {
+      const map = {
+        [JenisTransaksi.SETORAN]: 0,
+        [JenisTransaksi.ANGSURAN]: 0,
+        [JenisTransaksi.PENARIKAN]: 0,
+        [JenisTransaksi.PENCAIRAN]: 0,
+      };
+
+      for (const row of rows) {
+        map[row.jenisTransaksi] = this.toNumber(row._sum.nominal);
+      }
+
+      return map;
+    };
+
+    const currentNominal = nominalByJenis(currentGroupedTransaksi);
+    const komposisiSimpanan = {
+      pokok: 0,
+      wajib: 0,
+      sukarela: 0,
+    };
+    for (const row of saldoGrouped) {
+      if (row.jenisSimpanan === JenisSimpanan.POKOK) {
+        komposisiSimpanan.pokok = this.toNumber(row._sum.saldoBerjalan);
+      }
+      if (row.jenisSimpanan === JenisSimpanan.WAJIB) {
+        komposisiSimpanan.wajib = this.toNumber(row._sum.saldoBerjalan);
+      }
+      if (row.jenisSimpanan === JenisSimpanan.SUKARELA) {
+        komposisiSimpanan.sukarela = this.toNumber(row._sum.saldoBerjalan);
+      }
+    }
+
+    const totalSimpanan =
+      komposisiSimpanan.pokok +
+      komposisiSimpanan.wajib +
+      komposisiSimpanan.sukarela;
+    const pinjamanOutstanding = this.toNumber(
       totalOutstandingAgg._sum.sisaPinjaman,
     );
 
-    const totalSetoran = this.toNumber(setoranAgg._sum.nominal);
-    const totalPenarikan = this.toNumber(penarikanAgg._sum.nominal);
-    const angsuranBulanIni = this.toNumber(angsuranAgg._sum.nominal);
-
-    const prevTotalSimpanan = totalSimpanan - (totalSetoran - totalPenarikan);
-    const growthSimpanan = this.calculateGrowth(
-      totalSimpanan,
-      prevTotalSimpanan,
+    const previousSimpanan = Math.max(
+      0,
+      totalSimpanan - currentNominal.SETORAN + currentNominal.PENARIKAN,
+    );
+    const previousAktifNasabah = Math.max(
+      0,
+      aktifNasabah - nasabahBaru + nasabahKeluar,
     );
 
-    const komposisiSimpanan: Record<string, number> = {
-      [JenisSimpanan.POKOK]: 0,
-      [JenisSimpanan.WAJIB]: 0,
-      [JenisSimpanan.SUKARELA]: 0,
+    const performance = {
+      simpanan: this.calculateGrowth(totalSimpanan, previousSimpanan),
+      transaksi: this.calculateGrowth(currentTotalTransaksi, previousTotalTransaksi),
+      anggota: this.calculateGrowth(aktifNasabah, previousAktifNasabah),
     };
-    for (const row of saldoGrouped) {
-      komposisiSimpanan[row.jenisSimpanan] = this.toNumber(
-        row._sum.saldoBerjalan,
-      );
+
+    const cashflowTrend = cashflowTrendRows
+      .map((row) => ({
+        year: row.year,
+        month: row.month,
+        bulan: this.formatMonthLabel(row.month, row.year),
+        kasMasuk: this.toNumber(row.kasMasuk),
+        kasKeluar: this.toNumber(row.kasKeluar),
+      }))
+      .filter((row) => row.kasMasuk !== 0 || row.kasKeluar !== 0)
+      .sort((a, b) => (a.year - b.year) * 12 + (a.month - b.month))
+      .map(({ bulan: monthLabel, kasMasuk, kasKeluar }) => ({
+        bulan: monthLabel,
+        kasMasuk,
+        kasKeluar,
+      }));
+
+    const trenKeanggotaan = keanggotaanTrendRows
+      .map((row) => ({
+        year: row.year,
+        month: row.month,
+        bulan: this.formatMonthLabel(row.month, row.year),
+        anggotaBaru: this.toNumber(row.anggotaBaru),
+        anggotaKeluar: this.toNumber(row.anggotaKeluar),
+      }))
+      .filter((row) => row.anggotaBaru !== 0 || row.anggotaKeluar !== 0)
+      .sort((a, b) => (a.year - b.year) * 12 + (a.month - b.month))
+      .map(({ bulan: monthLabel, anggotaBaru, anggotaKeluar }) => ({
+        bulan: monthLabel,
+        anggotaBaru,
+        anggotaKeluar,
+      }));
+
+    const kasMasukBulanIni =
+      currentNominal.SETORAN + currentNominal.ANGSURAN;
+    const kasKeluarBulanIni =
+      currentNominal.PENARIKAN + currentNominal.PENCAIRAN;
+
+    const cashflow: 'surplus' | 'defisit' =
+      kasMasukBulanIni >= kasKeluarBulanIni ? 'surplus' : 'defisit';
+
+    const negatifCount = [performance.simpanan, performance.transaksi, performance.anggota].filter(
+      (value) => value < 0,
+    ).length;
+    let kondisi: 'stabil' | 'belum stabil' | 'berisiko' = 'belum stabil';
+    if (cashflow === 'surplus' && negatifCount <= 1) {
+      kondisi = 'stabil';
+    } else if (cashflow === 'defisit' && negatifCount >= 2) {
+      kondisi = 'berisiko';
     }
 
-    const monthRanges = Array.from({ length: trendMonths }, (_, index) => {
-      const shifted = this.shiftMonth(bulan, tahun, -(trendMonths - 1 - index));
-      return {
-        bulan: shifted.bulan,
-        tahun: shifted.tahun,
-        range: this.getMonthRange(shifted.bulan, shifted.tahun),
-      };
-    });
-
-    const [cashflowTrend, trenAnggota] = await Promise.all([
-      Promise.all(
-        monthRanges.map(async (item) => {
-          const [kasMasukAgg, kasKeluarAgg] = await Promise.all([
-            this.dashboardRepository.sumTransaksiNominal({
-              jenisTransaksi: [JenisTransaksi.SETORAN, JenisTransaksi.ANGSURAN],
-              tanggalFrom: item.range.start,
-              tanggalTo: item.range.end,
-            }),
-            this.dashboardRepository.sumTransaksiNominal({
-              jenisTransaksi: [
-                JenisTransaksi.PENARIKAN,
-                JenisTransaksi.PENCAIRAN,
-              ],
-              tanggalFrom: item.range.start,
-              tanggalTo: item.range.end,
-            }),
-          ]);
-
-          return {
-            bulan: this.formatMonthLabel(item.bulan, item.tahun),
-            kasMasuk: this.toNumber(kasMasukAgg._sum.nominal),
-            kasKeluar: this.toNumber(kasKeluarAgg._sum.nominal),
-          };
-        }),
-      ),
-      Promise.all(
-        monthRanges.map(async (item) => {
-          const [anggotaBaru, anggotaKeluar] = await Promise.all([
-            this.dashboardRepository.countNasabah({
-              deletedAt: null,
-              createdAt: { gte: item.range.start, lte: item.range.end },
-            }),
-            this.dashboardRepository.countNasabah({
-              deletedAt: null,
-              status: NasabahStatus.NONAKTIF,
-              updatedAt: { gte: item.range.start, lte: item.range.end },
-            }),
-          ]);
-
-          return {
-            bulan: this.formatMonthLabel(item.bulan, item.tahun),
-            anggotaBaru,
-            anggotaKeluar,
-          };
-        }),
-      ),
-    ]);
-
-    const topOutstandingValues = topOutstanding.map((item) => ({
-      pinjamanId: item.id,
-      nominal: this.toNumber(item.sisaPinjaman),
-    }));
-
-    const response = {
-      message: 'Berhasil mengambil data dashboard',
-      data: {
-        periode: { bulan, tahun },
-        ringkasanKeuangan: {
-          totalSimpanan,
-          totalOutstandingPinjaman,
-          angsuranBulanIni,
-          penarikanBulanIni: totalPenarikan,
-          growthSimpanan,
-          komposisiSimpanan,
-        },
-        aktivitasTransaksi: {
-          cashflowTrend,
-        },
-        kreditPinjaman: {
-          topOutstanding: topOutstandingValues,
-        },
-        keanggotaan: {
-          totalAnggota,
-          anggotaAktif,
-          trenAnggota,
-        },
+    return {
+      periode: { bulan, tahun },
+      ringkasanKeuangan: {
+        simpanan: totalSimpanan,
+        pinjamanOutstanding,
+        angsuranBulanIni: currentNominal.ANGSURAN,
+        penarikanBulanIni: currentNominal.PENARIKAN,
+        komposisiSimpanan,
+      },
+      performance,
+      aktivitasTransaksi: {
+        cashflowTrend,
+      },
+      kreditPinjaman: {
+        topOutstanding: topOutstanding.map((item) => ({
+          pinjamanId: item.id,
+          namaAnggota: item.nasabah.nama,
+          nominal: this.toNumber(item.sisaPinjaman),
+        })),
+      },
+      keanggotaan: {
+        total: totalNasabah,
+        aktif: aktifNasabah,
+        tren: trenKeanggotaan,
+      },
+      highlight: {
+        cashflow,
+        kondisi,
       },
     };
-
-    await this.cacheService.setJson(
-      cacheKey,
-      response,
-      this.getCacheTtlSeconds(),
-    );
-
-    await this.runWithRetry('registerKey', 'dashboard:get', () =>
-      this.cacheService.registerKey(
-        DASHBOARD_KEYS_REGISTRY,
-        cacheKey,
-        DASHBOARD_REGISTRY_TTL_SECONDS,
-      ),
-    );
-
-    const registryKeys = await this.cacheService.getRegisteredKeys(
-      DASHBOARD_KEYS_REGISTRY,
-    );
-    if (!registryKeys.includes(cacheKey)) {
-      this.logger.warn({
-        event: 'dashboard.registry.drift.detected',
-        source: 'dashboard:get',
-        timestamp: new Date().toISOString(),
-        missingKey: cacheKey,
-      });
-
-      await this.runWithRetry('registerKey.reconcile', 'dashboard:get', () =>
-        this.cacheService.registerKey(
-          DASHBOARD_KEYS_REGISTRY,
-          cacheKey,
-          DASHBOARD_REGISTRY_TTL_SECONDS,
-        ),
-      );
-    }
-
-    return response;
   }
 }
