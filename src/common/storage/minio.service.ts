@@ -12,27 +12,22 @@ export class MinioService {
   private readonly ensuredBuckets = new Set<string>();
 
   constructor(private readonly configService: ConfigService) {
-    const endpoint = configService.get<string>('MINIO_ENDPOINT') || 'localhost';
+    const endpoint =
+      process.env.MINIO_PUBLIC_ENDPOINT ||
+      process.env.MINIO_ENDPOINT ||
+      'localhost';
     const port = Number.parseInt(
-      configService.get<string>('MINIO_PORT') || '9000',
+      process.env.MINIO_PUBLIC_PORT || process.env.MINIO_PORT || '9000',
       10,
     );
     const useSSL =
-      (configService.get<string>('MINIO_USE_SSL') || 'false') === 'true';
-    const accessKey = configService.get<string>('MINIO_ACCESS_KEY') || '';
-    const secretKey = configService.get<string>('MINIO_SECRET_KEY') || '';
+      (process.env.MINIO_PUBLIC_USE_SSL ||
+        process.env.MINIO_USE_SSL ||
+        'false') === 'true';
+    const accessKey = process.env.MINIO_ACCESS_KEY || '';
+    const secretKey = process.env.MINIO_SECRET_KEY || '';
 
-    const publicEndpoint =
-      configService.get<string>('MINIO_PUBLIC_ENDPOINT') || endpoint;
-    const publicPort = Number.parseInt(
-      configService.get<string>('MINIO_PUBLIC_PORT') || `${port}`,
-      10,
-    );
-    const publicUseSSL =
-      (configService.get<string>('MINIO_PUBLIC_USE_SSL') || `${useSSL}`) ===
-      'true';
-
-    this.publicUrl = `${publicUseSSL ? 'https' : 'http'}://${publicEndpoint}:${publicPort}`;
+    this.publicUrl = `${useSSL ? 'https' : 'http'}://${endpoint}:${port}`;
 
     const configuredExpiry = Number(
       configService.get<string>('MINIO_PRESIGNED_EXPIRY_SECONDS') || '300',
@@ -58,9 +53,9 @@ export class MinioService {
     };
 
     this.minioClient = new Client({
-      endPoint: publicEndpoint,
-      port: publicPort,
-      useSSL: publicUseSSL,
+      endPoint: endpoint,
+      port,
+      useSSL,
       accessKey,
       secretKey,
     });
