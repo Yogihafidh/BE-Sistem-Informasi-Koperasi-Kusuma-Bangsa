@@ -199,6 +199,13 @@ describe('Full Koperasi Business Flow (Integration)', () => {
       adminToken,
     ).expect(200);
 
-    expect(res.body.data).toBeDefined();
+    expect(res.body).toBeDefined();
+    expect(res.body.periode).toEqual({ bulan, tahun });
+    expect(res.body.ringkasanKeuangan).toBeDefined();
+    expect(res.body.performance).toBeDefined();
+    expect(res.body.aktivitasTransaksi).toBeDefined();
+    expect(res.body.kreditPinjaman).toBeDefined();
+    expect(res.body.keanggotaan).toBeDefined();
+    expect(res.body.highlight).toBeDefined();
   });
 });
