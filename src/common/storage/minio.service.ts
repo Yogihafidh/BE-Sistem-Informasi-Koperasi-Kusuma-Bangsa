@@ -6,38 +6,62 @@ import { JenisDokumen } from '@prisma/client';
 @Injectable()
 export class MinioService {
   private readonly logger = new Logger(MinioService.name);
-  private readonly client: Client;
+  private readonly internalClient: Client;
+  private readonly publicClient: Client;
   private readonly publicUrl: string;
-  private readonly internalBaseUrl: string;
   private readonly presignedExpirySeconds: number;
   private readonly bucketMap: Record<JenisDokumen, string>;
   private readonly ensuredBuckets = new Set<string>();
 
   constructor(private readonly configService: ConfigService) {
-    const endPoint = configService.get<string>('MINIO_ENDPOINT') || 'localhost';
-    const port = parseInt(
+    const internalEndpoint =
+      configService.get<string>('MINIO_ENDPOINT') || 'localhost';
+    const internalPort = parseInt(
       configService.get<string>('MINIO_PORT') || '9000',
       10,
     );
-    const useSSL =
+    const internalUseSSL =
       (configService.get<string>('MINIO_USE_SSL') || 'false') === 'true';
     const accessKey = configService.get<string>('MINIO_ACCESS_KEY') || '';
     const secretKey = configService.get<string>('MINIO_SECRET_KEY') || '';
 
+    const rawPublicUrl = configService.get<string>('MINIO_PUBLIC_URL');
     this.publicUrl =
-      configService.get<string>('MINIO_PUBLIC_URL') ||
-      `http://${endPoint}:${port}`;
-    this.internalBaseUrl = `${useSSL ? 'https' : 'http'}://${endPoint}:${port}`;
+      rawPublicUrl ||
+      `${internalUseSSL ? 'https' : 'http'}://${internalEndpoint}:${internalPort}`;
 
-    if (!configService.get<string>('MINIO_PUBLIC_URL')) {
+    let publicEndpoint =
+      configService.get<string>('MINIO_PUBLIC_ENDPOINT') || internalEndpoint;
+    let publicPort = parseInt(
+      configService.get<string>('MINIO_PUBLIC_PORT') || `${internalPort}`,
+      10,
+    );
+    let publicUseSSL =
+      (configService.get<string>('MINIO_PUBLIC_USE_SSL') ||
+        `${internalUseSSL}`) === 'true';
+
+    if (rawPublicUrl) {
+      try {
+        const parsed = new URL(rawPublicUrl);
+        publicEndpoint = parsed.hostname;
+        publicPort = parsed.port ? Number(parsed.port) : 80;
+        publicUseSSL = parsed.protocol === 'https:';
+      } catch {
+        this.logger.warn(
+          `MINIO_PUBLIC_URL tidak valid (${rawPublicUrl}). Fallback ke endpoint internal untuk signing URL.`,
+        );
+      }
+    }
+
+    if (!rawPublicUrl) {
       this.logger.warn(
         `MINIO_PUBLIC_URL tidak ter-set. Fallback ke ${this.publicUrl}. URL browser bisa gagal jika hostname internal tidak dapat di-resolve.`,
       );
     }
 
-    if (this.publicUrl === this.internalBaseUrl) {
+    if (publicEndpoint === internalEndpoint && publicPort === internalPort) {
       this.logger.warn(
-        `MINIO_PUBLIC_URL sama dengan endpoint internal (${this.internalBaseUrl}). Presigned URL kemungkinan tidak dapat diakses dari browser publik.`,
+        `Presigned URL ditandatangani menggunakan endpoint internal (${internalEndpoint}:${internalPort}). Browser publik kemungkinan tidak dapat mengakses URL ini.`,
       );
     }
 
@@ -64,10 +88,18 @@ export class MinioService {
       ),
     };
 
-    this.client = new Client({
-      endPoint,
-      port,
-      useSSL,
+    this.internalClient = new Client({
+      endPoint: internalEndpoint,
+      port: internalPort,
+      useSSL: internalUseSSL,
+      accessKey,
+      secretKey,
+    });
+
+    this.publicClient = new Client({
+      endPoint: publicEndpoint,
+      port: publicPort,
+      useSSL: publicUseSSL,
       accessKey,
       secretKey,
     });
@@ -78,9 +110,9 @@ export class MinioService {
       return;
     }
 
-    const exists = await this.client.bucketExists(bucket);
+    const exists = await this.internalClient.bucketExists(bucket);
     if (!exists) {
-      await this.client.makeBucket(bucket);
+      await this.internalClient.makeBucket(bucket);
     }
 
     this.ensuredBuckets.add(bucket);
@@ -110,9 +142,15 @@ export class MinioService {
     contentType: string,
   ) {
     await this.ensureBucket(bucket);
-    return this.client.putObject(bucket, objectName, buffer, buffer.length, {
-      'Content-Type': contentType,
-    });
+    return this.internalClient.putObject(
+      bucket,
+      objectName,
+      buffer,
+      buffer.length,
+      {
+        'Content-Type': contentType,
+      },
+    );
   }
 
   buildPublicUrl(bucket: string, objectName: string) {
@@ -180,27 +218,11 @@ export class MinioService {
     objectName: string,
     expiresInSeconds = this.presignedExpirySeconds,
   ) {
-    const presignedUrl = await this.client.presignedGetObject(
+    return this.publicClient.presignedGetObject(
       bucket,
       objectName,
       expiresInSeconds,
     );
-
-    return this.toPublicPresignedUrl(presignedUrl);
-  }
-
-  private toPublicPresignedUrl(url: string) {
-    try {
-      const internal = new URL(url);
-      const external = new URL(this.publicUrl);
-
-      external.pathname = internal.pathname;
-      external.search = internal.search;
-
-      return external.toString();
-    } catch {
-      return url.replace(this.internalBaseUrl, this.publicUrl);
-    }
   }
 
   async buildAccessibleUrl(bucket: string, objectName: string) {
@@ -227,6 +249,9 @@ export class MinioService {
     }
 
     await this.ensureBucket(resolved.bucket);
-    await this.client.removeObject(resolved.bucket, resolved.objectName);
+    await this.internalClient.removeObject(
+      resolved.bucket,
+      resolved.objectName,
+    );
   }
 }
