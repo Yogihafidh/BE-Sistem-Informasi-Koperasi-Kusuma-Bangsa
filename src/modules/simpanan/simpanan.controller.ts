@@ -26,6 +26,7 @@ import {
   ApiBadRequestExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
 @ApiTags('simpanan')
@@ -152,18 +153,12 @@ export class SimpananController {
   @ApiQuery({
     name: 'after',
     required: false,
-    description: 'Cursor maju. Ambil data setelah ID ini.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
   })
   @ApiQuery({
     name: 'before',
     required: false,
-    description: 'Cursor mundur. Ambil data sebelum ID ini.',
-  })
-  @ApiQuery({
-    name: 'cursor',
-    required: false,
-    description:
-      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiResponse({
     status: 200,
@@ -198,10 +193,10 @@ export class SimpananController {
     @Param('id', ParseIntPipe) id: number,
     @Query('after', new ParseIntPipe({ optional: true })) after?: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
+    validateBidirectionalPaginationParams(after, before);
     return this.simpananService.listTransaksiByRekening(id, {
-      after: after ?? cursor,
+      after,
       before,
     });
   }

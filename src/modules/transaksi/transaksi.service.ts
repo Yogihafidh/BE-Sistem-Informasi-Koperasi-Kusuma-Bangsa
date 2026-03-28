@@ -13,6 +13,7 @@ import {
 import { TransaksiRepository } from './transaksi.repository';
 import { CreateTransaksiDto } from './dto';
 import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
 import { DashboardService } from '../dashboard/dashboard.service';
@@ -289,17 +290,18 @@ export class TransaksiService {
     tanggalFrom?: string;
     tanggalTo?: string;
   }) {
+    validateBidirectionalPaginationParams(args.after, args.before);
+
     const tanggalFrom = args.tanggalFrom
       ? new Date(args.tanggalFrom)
       : undefined;
     const tanggalTo = args.tanggalTo ? new Date(args.tanggalTo) : undefined;
-    const before = typeof args.after === 'number' ? undefined : args.before;
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksi({
         page: {
           after: args.after,
-          before,
+          before: args.before,
           take: DEFAULT_PAGE_SIZE,
         },
         jenisTransaksi: args.jenisTransaksi,
@@ -324,14 +326,14 @@ export class TransaksiService {
     nasabahId: number,
     args: { after?: number; before?: number },
   ) {
-    const before = typeof args.after === 'number' ? undefined : args.before;
+    validateBidirectionalPaginationParams(args.after, args.before);
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByNasabah({
         nasabahId,
         page: {
           after: args.after,
-          before,
+          before: args.before,
           take: DEFAULT_PAGE_SIZE,
         },
       });
@@ -353,14 +355,14 @@ export class TransaksiService {
     pegawaiId: number,
     args: { after?: number; before?: number },
   ) {
-    const before = typeof args.after === 'number' ? undefined : args.before;
+    validateBidirectionalPaginationParams(args.after, args.before);
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByPegawai({
         pegawaiId,
         page: {
           after: args.after,
-          before,
+          before: args.before,
           take: DEFAULT_PAGE_SIZE,
         },
       });
@@ -382,14 +384,14 @@ export class TransaksiService {
     rekeningSimpananId: number,
     args: { after?: number; before?: number },
   ) {
-    const before = typeof args.after === 'number' ? undefined : args.before;
+    validateBidirectionalPaginationParams(args.after, args.before);
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByRekening({
         rekeningSimpananId,
         page: {
           after: args.after,
-          before,
+          before: args.before,
           take: DEFAULT_PAGE_SIZE,
         },
       });
@@ -418,14 +420,14 @@ export class TransaksiService {
       throw new NotFoundException('Pinjaman tidak ditemukan');
     }
 
-    const before = typeof args.after === 'number' ? undefined : args.before;
+    validateBidirectionalPaginationParams(args.after, args.before);
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByPinjaman({
         pinjamanId,
         page: {
           after: args.after,
-          before,
+          before: args.before,
           take: DEFAULT_PAGE_SIZE,
         },
       });

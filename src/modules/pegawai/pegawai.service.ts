@@ -13,6 +13,7 @@ import {
   TogglePegawaiStatusDto,
 } from './dto';
 import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import { AuditTrailService } from '../audit/audit.service';
 
 @Injectable()
@@ -111,12 +112,12 @@ export class PegawaiService {
   }
 
   async getAllPegawai(args: { after?: number; before?: number }) {
-    const before = typeof args.after === 'number' ? undefined : args.before;
+    validateBidirectionalPaginationParams(args.after, args.before);
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.pegawaiRepository.findAllPegawai({
         after: args.after,
-        before,
+        before: args.before,
         take: DEFAULT_PAGE_SIZE,
       });
 

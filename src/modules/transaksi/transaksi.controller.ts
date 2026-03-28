@@ -22,6 +22,7 @@ import {
   ApiAuthErrors,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 
 @ApiTags('transaksi')
 @Controller('transaksi')
@@ -35,23 +36,17 @@ export class TransaksiController {
   @ApiOperation({
     summary: 'Dapatkan daftar transaksi',
     description:
-      'Mendukung cursor pagination dan filter jenis serta rentang tanggal.',
+      'Mendukung pagination dua arah dan filter jenis serta rentang tanggal.',
   })
   @ApiQuery({
     name: 'after',
     required: false,
-    description: 'Cursor maju. Ambil data setelah ID ini.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
   })
   @ApiQuery({
     name: 'before',
     required: false,
-    description: 'Cursor mundur. Ambil data sebelum ID ini.',
-  })
-  @ApiQuery({
-    name: 'cursor',
-    required: false,
-    description:
-      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiQuery({
     name: 'jenisTransaksi',
@@ -103,13 +98,13 @@ export class TransaksiController {
   listTransaksi(
     @Query('after', new ParseIntPipe({ optional: true })) after?: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
     @Query('jenisTransaksi') jenisTransaksi?: JenisTransaksi,
     @Query('tanggalFrom') tanggalFrom?: string,
     @Query('tanggalTo') tanggalTo?: string,
   ) {
+    validateBidirectionalPaginationParams(after, before);
     return this.transaksiService.listTransaksi({
-      after: after ?? cursor,
+      after,
       before,
       jenisTransaksi,
       tanggalFrom,
@@ -127,18 +122,12 @@ export class TransaksiController {
   @ApiQuery({
     name: 'after',
     required: false,
-    description: 'Cursor maju. Ambil data setelah ID ini.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
   })
   @ApiQuery({
     name: 'before',
     required: false,
-    description: 'Cursor mundur. Ambil data sebelum ID ini.',
-  })
-  @ApiQuery({
-    name: 'cursor',
-    required: false,
-    description:
-      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiResponse({
     status: 200,
@@ -172,10 +161,10 @@ export class TransaksiController {
     @Param('nasabahId', ParseIntPipe) nasabahId: number,
     @Query('after', new ParseIntPipe({ optional: true })) after?: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
+    validateBidirectionalPaginationParams(after, before);
     return this.transaksiService.listTransaksiByNasabah(nasabahId, {
-      after: after ?? cursor,
+      after,
       before,
     });
   }
@@ -190,18 +179,12 @@ export class TransaksiController {
   @ApiQuery({
     name: 'after',
     required: false,
-    description: 'Cursor maju. Ambil data setelah ID ini.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
   })
   @ApiQuery({
     name: 'before',
     required: false,
-    description: 'Cursor mundur. Ambil data sebelum ID ini.',
-  })
-  @ApiQuery({
-    name: 'cursor',
-    required: false,
-    description:
-      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiResponse({
     status: 200,
@@ -235,10 +218,10 @@ export class TransaksiController {
     @Param('pegawaiId', ParseIntPipe) pegawaiId: number,
     @Query('after', new ParseIntPipe({ optional: true })) after?: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
+    validateBidirectionalPaginationParams(after, before);
     return this.transaksiService.listTransaksiByPegawai(pegawaiId, {
-      after: after ?? cursor,
+      after,
       before,
     });
   }

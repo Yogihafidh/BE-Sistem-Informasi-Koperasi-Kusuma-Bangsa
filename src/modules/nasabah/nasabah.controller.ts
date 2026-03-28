@@ -44,6 +44,7 @@ import {
   ApiConflictExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import type { Request } from 'express';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
@@ -95,18 +96,12 @@ export class NasabahController {
   @ApiQuery({
     name: 'after',
     required: false,
-    description: 'Cursor maju. Ambil data setelah ID ini.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
   })
   @ApiQuery({
     name: 'before',
     required: false,
-    description: 'Cursor mundur. Ambil data sebelum ID ini.',
-  })
-  @ApiQuery({
-    name: 'cursor',
-    required: false,
-    description:
-      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiQuery({
     name: 'status',
@@ -149,15 +144,11 @@ export class NasabahController {
   getAllNasabah(
     @Query('after', new ParseIntPipe({ optional: true })) after?: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
     @Query('status', new ParseEnumPipe(NasabahStatus, { optional: true }))
     status?: NasabahStatus,
   ) {
-    const effectiveAfter = after ?? cursor;
-    return this.nasabahService.getAllNasabah(
-      { after: effectiveAfter, before },
-      status,
-    );
+    validateBidirectionalPaginationParams(after, before);
+    return this.nasabahService.getAllNasabah({ after, before }, status);
   }
 
   @Get(':id')

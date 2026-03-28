@@ -27,6 +27,7 @@ import { AuditTrailService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
 import { DashboardService } from '../dashboard/dashboard.service';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 
 @Injectable()
 export class PinjamanService {
@@ -144,14 +145,14 @@ export class PinjamanService {
     nasabahId: number,
     args: { after?: number; before?: number },
   ) {
-    const before = typeof args.after === 'number' ? undefined : args.before;
+    validateBidirectionalPaginationParams(args.after, args.before);
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.pinjamanRepository.listPinjamanByNasabah({
         nasabahId,
         page: {
           after: args.after,
-          before,
+          before: args.before,
           take: DEFAULT_PAGE_SIZE,
         },
       });
@@ -173,8 +174,10 @@ export class PinjamanService {
 
   async listAllPinjaman(query: ListPinjamanQueryDto) {
     const limit = DEFAULT_PAGE_SIZE;
-    const after = query.after ?? query.cursor;
-    const before = typeof after === 'number' ? undefined : query.before;
+    const after = query.after;
+    const before = query.before;
+
+    validateBidirectionalPaginationParams(after, before);
 
     let cursorNominal: Prisma.Decimal | undefined;
     let cursorId: number | undefined;
@@ -187,7 +190,7 @@ export class PinjamanService {
       );
 
       if (!anchor) {
-        throw new BadRequestException('Cursor tidak valid');
+        throw new BadRequestException('Penanda halaman tidak valid');
       }
 
       cursorNominal = anchor.jumlahPinjaman;
@@ -505,14 +508,14 @@ export class PinjamanService {
       throw new NotFoundException('Pinjaman tidak ditemukan');
     }
 
-    const before = typeof args.after === 'number' ? undefined : args.before;
+    validateBidirectionalPaginationParams(args.after, args.before);
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.transaksiRepository.listTransaksiByPinjaman({
         pinjamanId,
         page: {
           after: args.after,
-          before,
+          before: args.before,
           take: DEFAULT_PAGE_SIZE,
         },
       });

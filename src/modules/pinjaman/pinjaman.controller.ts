@@ -34,6 +34,7 @@ import {
   ApiBadRequestExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 import type { Request } from 'express';
 
@@ -49,26 +50,19 @@ export class PinjamanController {
   @ApiOperation({
     summary: 'Dapatkan semua pinjaman',
     description:
-      'Mendukung filter berdasarkan status, sorting nominal pinjaman, dan cursor-based pagination.',
+      'Mendukung filter berdasarkan status, sorting nominal pinjaman, dan pagination dua arah.',
   })
   @ApiQuery({
     name: 'after',
     required: false,
     example: 130,
-    description: 'Cursor maju. Ambil data setelah ID ini.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
   })
   @ApiQuery({
     name: 'before',
     required: false,
     example: 130,
-    description: 'Cursor mundur. Ambil data sebelum ID ini.',
-  })
-  @ApiQuery({
-    name: 'cursor',
-    required: false,
-    example: 130,
-    description:
-      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiQuery({
     name: 'status',
@@ -154,6 +148,7 @@ export class PinjamanController {
   })
   @ApiAuthErrors()
   listAllPinjaman(@Query() query: ListPinjamanQueryDto) {
+    validateBidirectionalPaginationParams(query.after, query.before);
     return this.pinjamanService.listAllPinjaman(query);
   }
 
@@ -270,18 +265,12 @@ export class PinjamanController {
   @ApiQuery({
     name: 'after',
     required: false,
-    description: 'Cursor maju. Ambil data setelah ID ini.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
   })
   @ApiQuery({
     name: 'before',
     required: false,
-    description: 'Cursor mundur. Ambil data sebelum ID ini.',
-  })
-  @ApiQuery({
-    name: 'cursor',
-    required: false,
-    description:
-      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiResponse({
     status: 200,
@@ -316,10 +305,10 @@ export class PinjamanController {
     @Param('nasabahId', ParseIntPipe) nasabahId: number,
     @Query('after', new ParseIntPipe({ optional: true })) after?: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
+    validateBidirectionalPaginationParams(after, before);
     return this.pinjamanService.listPinjamanByNasabah(nasabahId, {
-      after: after ?? cursor,
+      after,
       before,
     });
   }
@@ -452,18 +441,12 @@ export class PinjamanController {
   @ApiQuery({
     name: 'after',
     required: false,
-    description: 'Cursor maju. Ambil data setelah ID ini.',
+    description: 'Arah maju. Ambil data setelah ID ini.',
   })
   @ApiQuery({
     name: 'before',
     required: false,
-    description: 'Cursor mundur. Ambil data sebelum ID ini.',
-  })
-  @ApiQuery({
-    name: 'cursor',
-    required: false,
-    description:
-      'Alias legacy untuk after. Tetap didukung agar backward-compatible.',
+    description: 'Arah mundur. Ambil data sebelum ID ini.',
   })
   @ApiResponse({
     status: 200,
@@ -505,10 +488,10 @@ export class PinjamanController {
     @Param('id', ParseIntPipe) id: number,
     @Query('after', new ParseIntPipe({ optional: true })) after?: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
-    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
+    validateBidirectionalPaginationParams(after, before);
     return this.pinjamanService.listTransaksiByPinjaman(id, {
-      after: after ?? cursor,
+      after,
       before,
     });
   }

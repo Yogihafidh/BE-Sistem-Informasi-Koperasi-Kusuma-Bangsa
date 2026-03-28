@@ -16,6 +16,7 @@ import { SimpananTransaksiDto } from './dto';
 import { TransaksiRepository } from '../transaksi/transaksi.repository';
 import { TransaksiService } from '../transaksi/transaksi.service';
 import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
+import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
 import { DashboardService } from '../dashboard/dashboard.service';
@@ -166,7 +167,7 @@ export class SimpananService {
     rekeningId: number,
     args: { after?: number; before?: number },
   ) {
-    const before = typeof args.after === 'number' ? undefined : args.before;
+    validateBidirectionalPaginationParams(args.after, args.before);
 
     const rekening = await this.simpananRepository.findRekeningById(rekeningId);
     if (!rekening) {
@@ -178,7 +179,7 @@ export class SimpananService {
         rekeningSimpananId: rekeningId,
         page: {
           after: args.after,
-          before,
+          before: args.before,
           take: DEFAULT_PAGE_SIZE,
         },
       });
