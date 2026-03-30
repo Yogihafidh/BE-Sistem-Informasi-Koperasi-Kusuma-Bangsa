@@ -151,7 +151,8 @@ export class NasabahController {
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('status', new ParseEnumPipe(NasabahStatus, { optional: true }))
     status?: NasabahStatus,
-    @Query('pegawaiId', new ParseIntPipe({ optional: true })) pegawaiId?: number,
+    @Query('pegawaiId', new ParseIntPipe({ optional: true }))
+    pegawaiId?: number,
     @CurrentUser() user: UserFromJwt,
   ) {
     validateBidirectionalPaginationParams(after, before);

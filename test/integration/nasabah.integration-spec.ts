@@ -71,7 +71,11 @@ describe('Nasabah Module (Integration)', () => {
     );
     reassignedPegawaiId = reassignedPegawai.id;
 
-    await authPost(app, `/api/users/${reassignedUser.user.id}/roles`, adminToken)
+    await authPost(
+      app,
+      `/api/users/${reassignedUser.user.id}/roles`,
+      adminToken,
+    )
       .send({ roleIds: [staffRole.id] })
       .expect(201);
 
@@ -175,9 +179,11 @@ describe('Nasabah Module (Integration)', () => {
     });
 
     it('should reject staff requesting nasabah from another pegawai', async () => {
-      await authGet(app, `/api/nasabah?pegawaiId=${pegawaiId}`, staffToken).expect(
-        403,
-      );
+      await authGet(
+        app,
+        `/api/nasabah?pegawaiId=${pegawaiId}`,
+        staffToken,
+      ).expect(403);
     });
 
     it('should allow staff requesting nasabah with own pegawaiId', async () => {
@@ -192,7 +198,9 @@ describe('Nasabah Module (Integration)', () => {
     });
 
     it('should return 404 when pegawaiId is not found', async () => {
-      await authGet(app, '/api/nasabah?pegawaiId=99999', adminToken).expect(404);
+      await authGet(app, '/api/nasabah?pegawaiId=99999', adminToken).expect(
+        404,
+      );
     });
   });
 
