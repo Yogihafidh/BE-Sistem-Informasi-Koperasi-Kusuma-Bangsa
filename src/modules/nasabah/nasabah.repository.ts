@@ -113,11 +113,13 @@ export class NasabahRepository {
   async findAllNasabah(
     page: CursorPageRequest,
     status?: NasabahStatus,
+    pegawaiId?: number,
   ): Promise<CursorPageResult<NasabahListRow>> {
     const isBackward = typeof page.before === 'number';
     const baseWhere: Prisma.NasabahWhereInput = {
       deletedAt: null,
       ...(status ? { status } : {}),
+      ...(typeof pegawaiId === 'number' ? { pegawaiId } : {}),
     };
 
     const dataWhere: Prisma.NasabahWhereInput = {

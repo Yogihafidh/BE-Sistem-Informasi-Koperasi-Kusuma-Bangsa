@@ -20,6 +20,9 @@ describe('Nasabah Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
   let pegawaiUserId: number;
+  let pegawaiId: number;
+  let staffPegawaiId: number;
+  let staffToken: string;
   let reassignedPegawaiId: number;
 
   beforeAll(async () => {
@@ -36,12 +39,16 @@ describe('Nasabah Module (Integration)', () => {
       password: 'NasabahPeg123!',
     });
     pegawaiUserId = userRes.user.id;
-    await createTestPegawai(app, adminToken, pegawaiUserId);
+    const pegawai = await createTestPegawai(app, adminToken, pegawaiUserId);
+    pegawaiId = pegawai.id;
 
     // Assign Admin role so this pegawai-linked user can create nasabah
     const rolesRes = await authGet(app, '/api/roles', adminToken).expect(200);
     const adminRole = rolesRes.body.data.find(
       (r: { name: string }) => r.name === 'Admin',
+    );
+    const staffRole = rolesRes.body.data.find(
+      (r: { name: string }) => r.name === 'Staff',
     );
     await authPost(app, `/api/users/${pegawaiUserId}/roles`, adminToken)
       .send({ roleIds: [adminRole.id] })
@@ -63,6 +70,14 @@ describe('Nasabah Module (Integration)', () => {
       },
     );
     reassignedPegawaiId = reassignedPegawai.id;
+
+    await authPost(app, `/api/users/${reassignedUser.user.id}/roles`, adminToken)
+      .send({ roleIds: [staffRole.id] })
+      .expect(201);
+
+    const staffTokens = await loginAs(app, 'nasabahpegawai2', 'NasabahPeg456!');
+    staffToken = staffTokens.accessToken;
+    staffPegawaiId = reassignedPegawaiId;
   });
 
   afterAll(async () => {
@@ -122,7 +137,11 @@ describe('Nasabah Module (Integration)', () => {
 
   describe('GET /api/nasabah', () => {
     it('should list nasabah with pagination', async () => {
-      const res = await authGet(app, '/api/nasabah', adminToken).expect(200);
+      const res = await authGet(
+        app,
+        `/api/nasabah?pegawaiId=${pegawaiId}`,
+        adminToken,
+      ).expect(200);
 
       expect(res.body.data).toBeInstanceOf(Array);
       expect(res.body.data.length).toBeGreaterThanOrEqual(1);
@@ -132,7 +151,7 @@ describe('Nasabah Module (Integration)', () => {
     it('should filter nasabah by status PENDING', async () => {
       const res = await authGet(
         app,
-        '/api/nasabah?status=PENDING',
+        `/api/nasabah?status=PENDING&pegawaiId=${pegawaiId}`,
         adminToken,
       ).expect(200);
 
@@ -142,6 +161,38 @@ describe('Nasabah Module (Integration)', () => {
       for (const nasabah of res.body.data) {
         expect(nasabah.status).toBe('PENDING');
       }
+    });
+
+    it('should allow admin to access all nasabah without pegawaiId filter', async () => {
+      const res = await authGet(app, '/api/nasabah', adminToken).expect(200);
+
+      expect(res.body.data).toBeInstanceOf(Array);
+      expect(res.body.pagination).toBeDefined();
+    });
+
+    it('should reject staff without pegawaiId query parameter', async () => {
+      await authGet(app, '/api/nasabah', staffToken).expect(400);
+    });
+
+    it('should reject staff requesting nasabah from another pegawai', async () => {
+      await authGet(app, `/api/nasabah?pegawaiId=${pegawaiId}`, staffToken).expect(
+        403,
+      );
+    });
+
+    it('should allow staff requesting nasabah with own pegawaiId', async () => {
+      const res = await authGet(
+        app,
+        `/api/nasabah?pegawaiId=${staffPegawaiId}`,
+        staffToken,
+      ).expect(200);
+
+      expect(res.body.data).toBeInstanceOf(Array);
+      expect(res.body.pagination).toBeDefined();
+    });
+
+    it('should return 404 when pegawaiId is not found', async () => {
+      await authGet(app, '/api/nasabah?pegawaiId=99999', adminToken).expect(404);
     });
   });
 
