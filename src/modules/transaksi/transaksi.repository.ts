@@ -74,7 +74,7 @@ export class TransaksiRepository {
 
   findPegawaiById(id: number) {
     return this.prisma.pegawai.findFirst({
-      where: { id, deletedAt: null },
+      where: { id },
       select: {
         id: true,
       },
