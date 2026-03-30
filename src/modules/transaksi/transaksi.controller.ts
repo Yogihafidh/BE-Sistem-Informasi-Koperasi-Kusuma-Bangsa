@@ -250,6 +250,22 @@ export class TransaksiController {
             nominal: 150000,
             tanggal: '2026-02-09T10:00:00.000Z',
             metodePembayaran: 'TRANSFER',
+            nasabah: {
+              id: 1,
+              nomorAnggota: 'AGT-20260205-1234',
+              nama: 'Siti Aminah',
+              pekerjaan: 'Wiraswasta',
+            },
+            pegawai: {
+              id: 2,
+              nama: 'Budi Santoso',
+              jabatan: 'Admin',
+            },
+            rekeningSimpanan: {
+              id: 10,
+              jenisSimpanan: 'SUKARELA',
+            },
+            pinjaman: null,
           },
         },
       },

@@ -300,7 +300,7 @@ export class TransaksiService {
 
   async getTransaksiById(id: number) {
     const transaksi =
-      await this.transaksiRepository.findTransaksiSummaryById(id);
+      await this.transaksiRepository.findTransaksiDetailById(id);
     if (!transaksi) {
       throw new NotFoundException('Transaksi tidak ditemukan');
     }
@@ -385,6 +385,11 @@ export class TransaksiService {
     nasabahId: number,
     args: { after?: number; before?: number },
   ) {
+    const nasabah = await this.transaksiRepository.findNasabahById(nasabahId);
+    if (!nasabah) {
+      throw new NotFoundException('Nasabah tidak ditemukan');
+    }
+
     validateBidirectionalPaginationParams(args.after, args.before);
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =

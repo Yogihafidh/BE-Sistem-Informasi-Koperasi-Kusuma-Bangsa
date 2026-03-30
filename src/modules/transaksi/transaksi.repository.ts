@@ -20,11 +20,44 @@ const TRANSAKSI_SUMMARY_SELECT = {
   deletedAt: true,
 } satisfies Prisma.TransaksiSelect;
 
+const TRANSAKSI_DETAIL_SELECT = {
+  ...TRANSAKSI_SUMMARY_SELECT,
+  nasabah: {
+    select: {
+      id: true,
+      nomorAnggota: true,
+      nama: true,
+      pekerjaan: true,
+    },
+  },
+  pegawai: {
+    select: {
+      id: true,
+      nama: true,
+      jabatan: true,
+    },
+  },
+  rekeningSimpanan: {
+    select: {
+      id: true,
+      jenisSimpanan: true,
+    },
+  },
+  pinjaman: {
+    select: {
+      id: true,
+      jumlahPinjaman: true,
+      sisaPinjaman: true,
+    },
+  },
+} satisfies Prisma.TransaksiSelect;
+
 @Injectable()
 export class TransaksiRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
   private readonly transaksiSummarySelect = TRANSAKSI_SUMMARY_SELECT;
+  private readonly transaksiDetailSelect = TRANSAKSI_DETAIL_SELECT;
 
   findPegawaiByUserId(userId: number) {
     return this.prisma.pegawai.findUnique({
@@ -94,6 +127,13 @@ export class TransaksiRepository {
     return this.prisma.transaksi.findFirst({
       where: { id, deletedAt: null },
       select: this.transaksiSummarySelect,
+    });
+  }
+
+  findTransaksiDetailById(id: number) {
+    return this.prisma.transaksi.findFirst({
+      where: { id, deletedAt: null },
+      select: this.transaksiDetailSelect,
     });
   }
 
