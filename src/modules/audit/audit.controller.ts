@@ -1,4 +1,11 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -101,7 +108,7 @@ export class AuditController {
     },
   })
   @ApiAuthErrors()
-  getAuditTrailById(@Param('id') id: string) {
+  getAuditTrailById(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.auditTrailService.getAuditTrailById(id);
   }
 }
