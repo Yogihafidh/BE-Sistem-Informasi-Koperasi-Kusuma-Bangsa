@@ -464,46 +464,40 @@ export class NasabahService {
       dokumenUploads.push({ jenis: JenisDokumen.SLIP_GAJI, file: slipFile });
     }
 
-    const results: Array<{
-      id: number;
-      nasabahId: number;
-      jenisDokumen: JenisDokumen;
-      fileUrl: string;
-      uploadedAt: Date;
-    }> = [];
+    const results = await Promise.all(
+      dokumenUploads.map(async (item) => {
+        const bucket = this.minioService.getBucketNameForJenis(item.jenis);
+        const safeName = item.file.originalname.replaceAll(/\s+/g, '-');
+        const objectName = `nasabah/${nasabahId}/${item.jenis.toLowerCase()}-${Date.now()}-${safeName}`;
 
-    for (const item of dokumenUploads) {
-      const bucket = this.minioService.getBucketNameForJenis(item.jenis);
-      const safeName = item.file.originalname.replaceAll(/\s+/g, '-');
-      const objectName = `nasabah/${nasabahId}/${item.jenis.toLowerCase()}-${Date.now()}-${safeName}`;
+        await this.minioService.uploadObject(
+          bucket,
+          objectName,
+          item.file.buffer,
+          item.file.mimetype,
+        );
 
-      await this.minioService.uploadObject(
-        bucket,
-        objectName,
-        item.file.buffer,
-        item.file.mimetype,
-      );
+        const fileKey = this.minioService.buildObjectKey(bucket, objectName);
+        const dokumen = await this.nasabahRepository.createNasabahDokumen({
+          nasabahId,
+          jenisDokumen: item.jenis,
+          fileKey,
+        });
 
-      const fileKey = this.minioService.buildObjectKey(bucket, objectName);
-      const dokumen = await this.nasabahRepository.createNasabahDokumen({
-        nasabahId,
-        jenisDokumen: item.jenis,
-        fileKey,
-      });
+        const accessibleFileUrl = this.minioService.buildAccessibleUrl(
+          bucket,
+          objectName,
+        );
 
-      const accessibleFileUrl = this.minioService.buildAccessibleUrl(
-        bucket,
-        objectName,
-      );
-
-      results.push({
-        id: dokumen.id,
-        nasabahId: dokumen.nasabahId,
-        jenisDokumen: dokumen.jenisDokumen,
-        fileUrl: accessibleFileUrl,
-        uploadedAt: dokumen.uploadedAt,
-      });
-    }
+        return {
+          id: dokumen.id,
+          nasabahId: dokumen.nasabahId,
+          jenisDokumen: dokumen.jenisDokumen,
+          fileUrl: accessibleFileUrl,
+          uploadedAt: dokumen.uploadedAt,
+        };
+      }),
+    );
 
     return {
       message: 'Upload dokumen berhasil',
