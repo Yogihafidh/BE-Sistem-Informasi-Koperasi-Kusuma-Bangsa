@@ -143,6 +143,11 @@ export class PinjamanService {
     nasabahId: number,
     args: { after?: number; before?: number },
   ) {
+    const nasabah = await this.pinjamanRepository.findNasabahById(nasabahId);
+    if (!nasabah) {
+      throw new NotFoundException('Nasabah tidak ditemukan');
+    }
+
     validateBidirectionalPaginationParams(args.after, args.before);
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =

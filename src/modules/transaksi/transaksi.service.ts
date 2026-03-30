@@ -419,6 +419,11 @@ export class TransaksiService {
     pegawaiId: number,
     args: { after?: number; before?: number },
   ) {
+    const pegawai = await this.transaksiRepository.findPegawaiById(pegawaiId);
+    if (!pegawai) {
+      throw new NotFoundException('Pegawai tidak ditemukan');
+    }
+
     validateBidirectionalPaginationParams(args.after, args.before);
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
@@ -448,6 +453,14 @@ export class TransaksiService {
     rekeningSimpananId: number,
     args: { after?: number; before?: number },
   ) {
+    const rekening =
+      await this.transaksiRepository.findRekeningSimpananByIdOnly(
+        rekeningSimpananId,
+      );
+    if (!rekening) {
+      throw new NotFoundException('Rekening simpanan tidak ditemukan');
+    }
+
     validateBidirectionalPaginationParams(args.after, args.before);
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
