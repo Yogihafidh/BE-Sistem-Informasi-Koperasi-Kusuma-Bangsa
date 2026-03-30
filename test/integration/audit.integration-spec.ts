@@ -125,6 +125,14 @@ describe('Audit Module (Integration)', () => {
         adminToken,
       ).expect(404);
     });
+
+    it('should return 400 for invalid audit trail id format', async () => {
+      await authGet(
+        app,
+        '/api/audit-trails/01b44951-d7d7-42d0-a151-8dacf23d53',
+        adminToken,
+      ).expect(400);
+    });
   });
 
   describe('Authorization', () => {
