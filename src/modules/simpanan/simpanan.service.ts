@@ -24,6 +24,8 @@ import { AuditTrailService } from '../audit/audit.service';
 
 @Injectable()
 export class SimpananService {
+  private static readonly MAX_DB_INT = 2147483647;
+
   constructor(
     private readonly simpananRepository: SimpananRepository,
     private readonly transaksiRepository: TransaksiRepository,
@@ -34,6 +36,8 @@ export class SimpananService {
   ) {}
 
   async listRekeningByNasabah(nasabahId: number) {
+    this.ensureValidDbIntId(nasabahId, 'Nasabah');
+
     const nasabah = await this.simpananRepository.findNasabahById(nasabahId);
     if (!nasabah) {
       throw new NotFoundException('Nasabah tidak ditemukan');
@@ -51,6 +55,8 @@ export class SimpananService {
     dto: SimpananTransaksiDto,
     userId: number,
   ) {
+    this.ensureValidDbIntId(rekeningId, 'Rekening simpanan');
+
     const [minInitialDeposit, minMonthlyDeposit] = await Promise.all([
       this.settingsService.getNumber(SETTING_KEYS.SAVINGS_MIN_INITIAL_DEPOSIT),
       this.settingsService.getNumber(SETTING_KEYS.SAVINGS_MIN_MONTHLY_DEPOSIT),
@@ -108,6 +114,8 @@ export class SimpananService {
     dto: SimpananTransaksiDto,
     userId: number,
   ) {
+    this.ensureValidDbIntId(rekeningId, 'Rekening simpanan');
+
     const allowWithdrawalIfLoanActive = await this.settingsService.getBoolean(
       SETTING_KEYS.SAVINGS_ALLOW_WITHDRAWAL_IF_LOAN_ACTIVE,
     );
@@ -168,6 +176,8 @@ export class SimpananService {
     rekeningId: number,
     args: { after?: number; before?: number },
   ) {
+    this.ensureValidDbIntId(rekeningId, 'Rekening simpanan');
+
     validateBidirectionalPaginationParams(args.after, args.before);
 
     const rekening = await this.simpananRepository.findRekeningById(rekeningId);
@@ -199,6 +209,8 @@ export class SimpananService {
   }
 
   async softDeleteRekening(id: number, userId: number) {
+    this.ensureValidDbIntId(id, 'Rekening simpanan');
+
     const rekening = await this.simpananRepository.findRekeningById(id);
     if (!rekening) {
       throw new NotFoundException('Rekening simpanan tidak ditemukan');
@@ -230,5 +242,15 @@ export class SimpananService {
     return {
       message: 'Rekening simpanan berhasil dihapus',
     };
+  }
+
+  private ensureValidDbIntId(id: number, entity: string) {
+    if (
+      !Number.isSafeInteger(id) ||
+      id <= 0 ||
+      id > SimpananService.MAX_DB_INT
+    ) {
+      throw new BadRequestException(`ID ${entity.toLowerCase()} tidak valid`);
+    }
   }
 }

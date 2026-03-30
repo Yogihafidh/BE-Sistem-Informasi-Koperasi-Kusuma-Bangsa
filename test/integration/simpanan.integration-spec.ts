@@ -105,6 +105,19 @@ describe('Simpanan Module (Integration)', () => {
         })
         .expect(400);
     });
+
+    it('should return 400 for rekening id outside db int range', async () => {
+      await authPost(
+        app,
+        '/api/simpanan/rekening/100000000000000000/setoran',
+        adminToken,
+      )
+        .send({
+          nominal: 100,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+    });
   });
 
   describe('POST /api/simpanan/rekening/:id/penarikan', () => {
