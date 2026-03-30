@@ -16,7 +16,10 @@ import {
 import { TransaksiService } from './transaksi.service';
 import { Permissions } from '../../common/decorators';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
-import { ApiAuthErrors } from '../../common/decorators/api-docs.decorator';
+import {
+  ApiAuthErrors,
+  ApiNotFoundExample,
+} from '../../common/decorators/api-docs.decorator';
 import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 
 @ApiTags('transaksi')
@@ -69,6 +72,7 @@ export class TransaksiRelationsController {
       },
     },
   })
+  @ApiNotFoundExample('Rekening simpanan tidak ditemukan')
   @ApiAuthErrors()
   listTransaksiByRekening(
     @Param('id', ParseIntPipe) id: number,
@@ -126,6 +130,7 @@ export class TransaksiRelationsController {
       },
     },
   })
+  @ApiNotFoundExample('Pinjaman tidak ditemukan')
   @ApiAuthErrors()
   listTransaksiByPinjaman(
     @Param('id', ParseIntPipe) id: number,

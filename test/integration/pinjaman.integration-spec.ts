@@ -101,6 +101,12 @@ describe('Pinjaman Module (Integration)', () => {
       expect(res.body.data[0].nasabah).toBeUndefined();
       expect(res.body.data[0].verifiedById).toBeUndefined();
     });
+
+    it('should return 404 when nasabah does not exist', async () => {
+      await authGet(app, '/api/pinjaman/nasabah/99999999', adminToken).expect(
+        404,
+      );
+    });
   });
 
   describe('GET /api/pinjaman', () => {

@@ -161,4 +161,22 @@ describe('Transaksi Module (Integration)', () => {
       ).expect(404);
     });
   });
+
+  describe('GET /api/rekening-simpanan/:id/transaksi', () => {
+    it('should return 404 when rekening simpanan does not exist', async () => {
+      await authGet(
+        app,
+        '/api/rekening-simpanan/99999999/transaksi',
+        adminToken,
+      ).expect(404);
+    });
+  });
+
+  describe('GET /api/transaksi/pegawai/:pegawaiId', () => {
+    it('should return 404 when pegawai does not exist', async () => {
+      await authGet(app, '/api/transaksi/pegawai/99999999', adminToken).expect(
+        404,
+      );
+    });
+  });
 });

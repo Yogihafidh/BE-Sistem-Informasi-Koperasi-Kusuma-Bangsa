@@ -72,6 +72,15 @@ export class TransaksiRepository {
     });
   }
 
+  findPegawaiById(id: number) {
+    return this.prisma.pegawai.findFirst({
+      where: { id },
+      select: {
+        id: true,
+      },
+    });
+  }
+
   findNasabahById(id: number) {
     return this.prisma.nasabah.findFirst({
       where: { id, deletedAt: null },
@@ -105,6 +114,15 @@ export class TransaksiRepository {
   findRekeningSimpananById(id: number, nasabahId: number) {
     return this.prisma.rekeningSimpanan.findFirst({
       where: { id, nasabahId, deletedAt: null },
+    });
+  }
+
+  findRekeningSimpananByIdOnly(id: number) {
+    return this.prisma.rekeningSimpanan.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+      },
     });
   }
 
