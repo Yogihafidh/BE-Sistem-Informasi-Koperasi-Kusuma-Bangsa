@@ -88,6 +88,25 @@ describe('Transaksi Module (Integration)', () => {
       expect(res.body.data.id).toBe(createdTransaksiId);
       expect(res.body.data).toHaveProperty('jenisTransaksi');
       expect(res.body.data).toHaveProperty('nominal');
+      expect(res.body.data).toHaveProperty('nasabah');
+      expect(res.body.data.nasabah.id).toBe(nasabahId);
+      expect(res.body.data.nasabah).toHaveProperty('nomorAnggota');
+      expect(res.body.data.nasabah).toHaveProperty('nama');
+      expect(res.body.data.nasabah).toHaveProperty('pekerjaan');
+      expect(res.body.data).toHaveProperty('pegawai');
+      expect(res.body.data.pegawai).toHaveProperty('nama');
+      expect(res.body.data.pegawai).toHaveProperty('jabatan');
+
+      if (res.body.data.rekeningSimpananId !== null) {
+        expect(res.body.data.rekeningSimpanan).toBeTruthy();
+        expect(res.body.data.rekeningSimpanan).toHaveProperty('jenisSimpanan');
+      }
+
+      if (res.body.data.pinjamanId !== null) {
+        expect(res.body.data.pinjaman).toBeTruthy();
+        expect(res.body.data.pinjaman).toHaveProperty('jumlahPinjaman');
+        expect(res.body.data.pinjaman).toHaveProperty('sisaPinjaman');
+      }
     });
   });
 
@@ -130,6 +149,16 @@ describe('Transaksi Module (Integration)', () => {
 
       expect(res.body.data).toBeInstanceOf(Array);
       expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should return 404 when nasabah does not exist', async () => {
+      const missingNasabahId = 99999999;
+
+      await authGet(
+        app,
+        `/api/transaksi/nasabah/${missingNasabahId}`,
+        adminToken,
+      ).expect(404);
     });
   });
 });
