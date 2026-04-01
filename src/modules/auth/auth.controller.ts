@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Body, UseGuards, Req } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  UseGuards,
+  Req,
+  HttpCode,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -85,6 +93,7 @@ export class AuthController {
   })
   @ApiUnauthorizedExample('Username/email atau password salah')
   @ApiForbiddenExample('Akun tidak aktif')
+  @HttpCode(200)
   login(@Body() loginDto: LoginDto, @Req() request: Request) {
     return this.authService.login(loginDto, request.ip);
   }
@@ -135,6 +144,7 @@ export class AuthController {
     'Password lama salah atau konfirmasi password tidak cocok',
   )
   @ApiAuthErrors()
+  @HttpCode(200)
   changePassword(
     @CurrentUser() user: UserFromJwt,
     @Body() changePasswordDto: ChangePasswordDto,
@@ -172,6 +182,7 @@ export class AuthController {
     },
   })
   @ApiAuthErrors()
+  @HttpCode(200)
   refreshToken(@Body() dto: RefreshTokenDto) {
     return this.authService.refreshToken(dto.refreshToken);
   }
@@ -191,6 +202,7 @@ export class AuthController {
     },
   })
   @ApiAuthErrors()
+  @HttpCode(200)
   logout(@Req() request: Request) {
     const authHeader = request.headers.authorization || '';
     const token = authHeader.replace(/^Bearer\s+/i, '').trim();

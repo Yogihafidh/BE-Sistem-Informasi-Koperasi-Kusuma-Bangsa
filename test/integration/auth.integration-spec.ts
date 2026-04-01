@@ -115,7 +115,7 @@ describe('Auth Module (Integration)', () => {
           usernameOrEmail: 'admin',
           password: 'Admin@123',
         })
-        .expect(201);
+        .expect(200);
 
       expect(res.body.message).toBe('Login berhasil');
       expect(res.body).toHaveProperty('accessToken');
@@ -131,7 +131,7 @@ describe('Auth Module (Integration)', () => {
           usernameOrEmail: 'admin@koperasi.com',
           password: 'Admin@123',
         })
-        .expect(201);
+        .expect(200);
 
       expect(res.body.accessToken).toBeDefined();
     });
@@ -221,7 +221,7 @@ describe('Auth Module (Integration)', () => {
           newPassword: 'NewPass123!',
           confirmPassword: 'NewPass123!',
         })
-        .expect(201);
+        .expect(200);
 
       expect(res.body.message).toBe('Password berhasil diubah');
 
@@ -238,7 +238,7 @@ describe('Auth Module (Integration)', () => {
       const res = await request(app.getHttpServer() as App)
         .post('/api/refresh')
         .send({ refreshToken: tokens.refreshToken })
-        .expect(201);
+        .expect(200);
 
       expect(res.body.message).toBe('Token berhasil diperbarui');
       expect(res.body.accessToken).toBeDefined();
@@ -251,7 +251,7 @@ describe('Auth Module (Integration)', () => {
       const tokens = await loginAsAdmin(app);
       const tokenToLogout = tokens.accessToken;
 
-      const res = await authPost(app, '/api/logout', tokenToLogout).expect(201);
+      const res = await authPost(app, '/api/logout', tokenToLogout).expect(200);
 
       expect(res.body.message).toBe('Logout berhasil');
 
