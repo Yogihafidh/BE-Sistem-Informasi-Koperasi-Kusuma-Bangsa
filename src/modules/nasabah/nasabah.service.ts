@@ -259,8 +259,42 @@ export class NasabahService {
   async getAllNasabah(
     args: { after?: number; before?: number },
     status?: NasabahStatus,
+    user: RequestUser,
+    pegawaiId?: number,
   ) {
     validateBidirectionalPaginationParams(args.after, args.before);
+
+    let effectivePegawaiId: number | undefined;
+
+    if (pegawaiId !== undefined) {
+      const pegawai = await this.nasabahRepository.findPegawaiById(pegawaiId);
+      if (!pegawai) {
+        throw new NotFoundException('Pegawai tidak ditemukan');
+      }
+    }
+
+    if (this.isAdminOrSuperAdmin(user)) {
+      effectivePegawaiId = pegawaiId;
+    } else {
+      if (pegawaiId === undefined) {
+        throw new BadRequestException('pegawaiId wajib diisi');
+      }
+
+      const pegawaiRequester = await this.nasabahRepository.findPegawaiByUserId(
+        user.userId,
+      );
+      if (!pegawaiRequester) {
+        throw new NotFoundException('Pegawai tidak ditemukan');
+      }
+
+      if (pegawaiRequester.id !== pegawaiId) {
+        throw new ForbiddenException(
+          'Anda tidak berhak mengakses data nasabah pegawai lain',
+        );
+      }
+
+      effectivePegawaiId = pegawaiId;
+    }
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
       await this.nasabahRepository.findAllNasabah(
@@ -270,6 +304,7 @@ export class NasabahService {
           take: DEFAULT_PAGE_SIZE,
         },
         status,
+        effectivePegawaiId,
       );
 
     return {

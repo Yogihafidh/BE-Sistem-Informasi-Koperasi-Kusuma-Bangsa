@@ -109,6 +109,11 @@ export class NasabahController {
     enum: NasabahStatus,
     description: 'Filter status nasabah (contoh: PENDING, AKTIF, DITOLAK)',
   })
+  @ApiQuery({
+    name: 'pegawaiId',
+    required: false,
+    description: 'Filter berdasarkan pegawai penanggung jawab',
+  })
   @ApiResponse({
     status: 200,
     description: 'Daftar nasabah berhasil diambil',
@@ -146,9 +151,17 @@ export class NasabahController {
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('status', new ParseEnumPipe(NasabahStatus, { optional: true }))
     status?: NasabahStatus,
+    @Query('pegawaiId', new ParseIntPipe({ optional: true }))
+    pegawaiId?: number,
+    @CurrentUser() user: UserFromJwt,
   ) {
     validateBidirectionalPaginationParams(after, before);
-    return this.nasabahService.getAllNasabah({ after, before }, status);
+    return this.nasabahService.getAllNasabah(
+      { after, before },
+      status,
+      user,
+      pegawaiId,
+    );
   }
 
   @Get(':id')

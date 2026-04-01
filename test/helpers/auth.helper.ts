@@ -19,7 +19,7 @@ export async function loginAs(
   const res = await request(app.getHttpServer() as App)
     .post('/api/login')
     .send({ usernameOrEmail, password })
-    .expect(201);
+    .expect(200);
 
   return {
     accessToken: res.body.accessToken as string,
