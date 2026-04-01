@@ -147,19 +147,19 @@ export class NasabahController {
   })
   @ApiAuthErrors()
   getAllNasabah(
+    @CurrentUser() user: UserFromJwt,
     @Query('after', new ParseIntPipe({ optional: true })) after?: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('status', new ParseEnumPipe(NasabahStatus, { optional: true }))
     status?: NasabahStatus,
     @Query('pegawaiId', new ParseIntPipe({ optional: true }))
     pegawaiId?: number,
-    @CurrentUser() user: UserFromJwt,
   ) {
     validateBidirectionalPaginationParams(after, before);
     return this.nasabahService.getAllNasabah(
       { after, before },
-      status,
       user,
+      status,
       pegawaiId,
     );
   }

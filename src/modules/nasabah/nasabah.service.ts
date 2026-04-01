@@ -258,8 +258,8 @@ export class NasabahService {
 
   async getAllNasabah(
     args: { after?: number; before?: number },
-    status?: NasabahStatus,
     user: RequestUser,
+    status?: NasabahStatus,
     pegawaiId?: number,
   ) {
     validateBidirectionalPaginationParams(args.after, args.before);
