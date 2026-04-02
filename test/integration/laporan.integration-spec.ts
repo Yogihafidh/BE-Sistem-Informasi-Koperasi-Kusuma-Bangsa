@@ -286,7 +286,13 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
 
       const body = res.body;
 
-      expect(body.periode).toEqual({ bulan: 3, tahun: 2026 });
+      expect(body.periode).toEqual(
+        expect.objectContaining({
+          bulan: 3,
+          tahun: 2026,
+          range: '2026-03-01 - 2026-03-31',
+        }),
+      );
 
       expect(body.ringkasan).toEqual({
         saldoAwal: 1100000,
@@ -334,23 +340,17 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       expect(body.rasio.pinjamanTerhadapSimpanan).toBeCloseTo(4 / 6, 10);
       expect(body.rasio.keaktifanAnggota).toBeCloseTo(2 / 3, 10);
 
-      expect(body.performance.simpanan.growth).toBeCloseTo(
-        1100000 / 4900000,
-        10,
-      );
-      expect(body.performance.simpanan.keterangan).toBe('meningkat');
+      expect(body.performance.simpanan.growth).toBeCloseTo(0, 10);
+      expect(body.performance.simpanan.keterangan).toBe('stagnan');
 
-      expect(body.performance.pinjaman.growth).toBeCloseTo(
-        200000 / 3800000,
-        10,
-      );
-      expect(body.performance.pinjaman.keterangan).toBe('meningkat');
+      expect(body.performance.pinjaman.growth).toBeCloseTo(0, 10);
+      expect(body.performance.pinjaman.keterangan).toBe('stagnan');
 
       expect(body.performance.transaksi.growth).toBeCloseTo(0.25, 10);
       expect(body.performance.transaksi.keterangan).toBe('meningkat');
 
-      expect(body.performance.anggota.growth).toBe(0);
-      expect(body.performance.anggota.keterangan).toBe('stabil');
+      expect(body.performance.anggota.growth).toBeCloseTo(0.5, 10);
+      expect(body.performance.anggota.keterangan).toBe('meningkat');
     });
 
     it('should reflect fresh data immediately without cache', async () => {

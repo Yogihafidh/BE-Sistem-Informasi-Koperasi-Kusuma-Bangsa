@@ -41,6 +41,8 @@ type UploadFiles = {
   slipGaji?: UploadFile[];
 };
 
+const DOKUMEN_MIME_ALLOWED = ['image/jpeg', 'image/png', 'application/pdf'];
+
 type RequestUser = {
   userId: number;
   roles: string[];
@@ -472,19 +474,11 @@ export class NasabahService {
       throw new BadRequestException('Dokumen KK wajib diunggah');
     }
 
-    this.validateFile(
-      ktpFile,
-      ['image/jpeg', 'image/png', 'application/pdf'],
-      2,
-    );
-    this.validateFile(
-      kkFile,
-      ['image/jpeg', 'image/png', 'application/pdf'],
-      2,
-    );
+    this.validateFile(ktpFile, DOKUMEN_MIME_ALLOWED, 2);
+    this.validateFile(kkFile, DOKUMEN_MIME_ALLOWED, 2);
 
     if (slipFile) {
-      this.validateFile(slipFile, ['application/pdf'], 5);
+      this.validateFile(slipFile, DOKUMEN_MIME_ALLOWED, 5);
     }
 
     const dokumenUploads: Array<{
@@ -566,10 +560,7 @@ export class NasabahService {
       }
     }
 
-    const allowedMime =
-      jenisDokumen === JenisDokumen.SLIP_GAJI
-        ? ['application/pdf']
-        : ['image/jpeg', 'image/png', 'application/pdf'];
+    const allowedMime = DOKUMEN_MIME_ALLOWED;
     const maxSizeMb = jenisDokumen === JenisDokumen.SLIP_GAJI ? 5 : 2;
     this.validateFile(file, allowedMime, maxSizeMb);
 

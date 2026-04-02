@@ -213,17 +213,18 @@ describe('Dashboard Module (Integration)', () => {
         adminToken,
       ).expect(200);
 
-      expect(dashboard.ringkasanUtama.totalAnggota).toBe(
-        nasabahAll.body.pagination.total,
-      );
-      expect(dashboard.ringkasanUtama.anggotaAktif).toBe(
-        nasabahAktif.body.pagination.total,
-      );
+      const totalNasabah =
+        nasabahAll.body.pagination?.total ?? nasabahAll.body.data.length;
+      const totalNasabahAktif =
+        nasabahAktif.body.pagination?.total ?? nasabahAktif.body.data.length;
+
+      expect(dashboard.ringkasanUtama.totalAnggota).toBe(totalNasabah);
+      expect(dashboard.ringkasanUtama.anggotaAktif).toBe(totalNasabahAktif);
     });
 
     it('should follow dashboard trendMonths setting updates', async () => {
       await authPut(app, '/api/settings/dashboard.trendMonths', adminToken)
-        .send({ value: '3', valueType: 'NUMBER' })
+        .send({ value: '3' })
         .expect(200);
 
       const body = await getDashboard();

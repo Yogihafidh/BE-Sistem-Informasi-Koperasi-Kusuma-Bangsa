@@ -80,7 +80,6 @@ export class RekapitulasiRepository {
     return this.prisma.rekeningSimpanan.groupBy({
       by: ['jenisSimpanan'],
       where: {
-        createdAt: { lte: tanggalLte },
         OR: [{ deletedAt: null }, { deletedAt: { gt: tanggalLte } }],
       },
       _sum: { saldoBerjalan: true },
