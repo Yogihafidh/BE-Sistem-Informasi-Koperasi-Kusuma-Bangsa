@@ -76,12 +76,45 @@ export class RekapitulasiRepository {
     });
   }
 
+  groupSaldoSimpananByJenisAt(tanggalLte: Date) {
+    return this.prisma.rekeningSimpanan.groupBy({
+      by: ['jenisSimpanan'],
+      where: {
+        createdAt: { lte: tanggalLte },
+        OR: [{ deletedAt: null }, { deletedAt: { gt: tanggalLte } }],
+      },
+      _sum: { saldoBerjalan: true },
+    });
+  }
+
   getOutstandingPinjamanSummary() {
     return this.prisma.pinjaman.aggregate({
       where: {
         deletedAt: null,
         status: PinjamanStatus.DISETUJUI,
         sisaPinjaman: { gt: new Prisma.Decimal(0) },
+      },
+      _sum: { sisaPinjaman: true },
+      _count: { _all: true },
+    });
+  }
+
+  getOutstandingPinjamanSummaryAt(tanggalLte: Date) {
+    return this.prisma.pinjaman.aggregate({
+      where: {
+        status: PinjamanStatus.DISETUJUI,
+        sisaPinjaman: { gt: new Prisma.Decimal(0) },
+        AND: [
+          {
+            OR: [{ deletedAt: null }, { deletedAt: { gt: tanggalLte } }],
+          },
+          {
+            OR: [
+              { tanggalPersetujuan: null },
+              { tanggalPersetujuan: { lte: tanggalLte } },
+            ],
+          },
+        ],
       },
       _sum: { sisaPinjaman: true },
       _count: { _all: true },
@@ -100,9 +133,41 @@ export class RekapitulasiRepository {
     );
   }
 
+  countDistinctNasabahPinjamanAktifAt(tanggalLte: Date) {
+    return this.prisma.$queryRaw<{ count: bigint }[]>(
+      Prisma.sql`
+        SELECT COUNT(DISTINCT "nasabahId") AS count
+        FROM "Pinjaman"
+        WHERE ("deletedAt" IS NULL OR "deletedAt" > ${tanggalLte})
+          AND "status" = ${PinjamanStatus.DISETUJUI}::"PinjamanStatus"
+          AND "sisaPinjaman" > 0
+          AND ("tanggalPersetujuan" IS NULL OR "tanggalPersetujuan" <= ${tanggalLte})
+      `,
+    );
+  }
+
   countNasabahTotal() {
     return this.prisma.nasabah.count({
       where: { deletedAt: null },
+    });
+  }
+
+  countNasabahTotalAt(tanggalLte: Date) {
+    return this.prisma.nasabah.count({
+      where: {
+        tanggalDaftar: { lte: tanggalLte },
+        OR: [{ deletedAt: null }, { deletedAt: { gt: tanggalLte } }],
+      },
+    });
+  }
+
+  countNasabahAktifAt(tanggalLte: Date) {
+    return this.prisma.nasabah.count({
+      where: {
+        status: NasabahStatus.AKTIF,
+        tanggalDaftar: { lte: tanggalLte },
+        OR: [{ deletedAt: null }, { deletedAt: { gt: tanggalLte } }],
+      },
     });
   }
 

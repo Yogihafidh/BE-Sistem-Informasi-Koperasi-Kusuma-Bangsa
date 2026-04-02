@@ -6,6 +6,7 @@ export type RekapitulasiBulanan = {
   periode: {
     bulan: number;
     tahun: number;
+    range: string;
   };
   ringkasan: {
     saldoAwal: number;
@@ -124,7 +125,11 @@ export class RekapitulasiService {
       return { growth, keterangan: 'menurun' };
     }
 
-    return { growth, keterangan: 'stabil' };
+    return { growth, keterangan: 'stagnan' };
+  }
+
+  private formatDateOnly(date: Date): string {
+    return date.toISOString().slice(0, 10);
   }
 
   private getPeriodRange(bulan: number, tahun: number) {
@@ -187,13 +192,16 @@ export class RekapitulasiService {
       currentGrouped,
       previousGrouped,
       cumulativeUntilPrevious,
-      distinctNasabahTransaksiCurrentRows,
       saldoSimpananByJenis,
       pinjamanOutstandingAgg,
       distinctNasabahPinjamanAktifRows,
       nasabahTotal,
+      nasabahAktif,
       nasabahBaru,
       nasabahKeluar,
+      previousSaldoSimpananByJenis,
+      previousPinjamanOutstandingAgg,
+      previousNasabahTotal,
     ] = await Promise.all([
       this.repository.groupTransaksiByJenis({
         tanggalFrom: currentFrom,
@@ -204,14 +212,11 @@ export class RekapitulasiService {
         tanggalTo: previousTo,
       }),
       this.repository.groupTransaksiByJenisUntil(previousTo),
-      this.repository.countDistinctNasabahTransaksi({
-        tanggalFrom: currentFrom,
-        tanggalTo: currentTo,
-      }),
-      this.repository.groupSaldoSimpananByJenis(),
-      this.repository.getOutstandingPinjamanSummary(),
-      this.repository.countDistinctNasabahPinjamanAktif(),
-      this.repository.countNasabahTotal(),
+      this.repository.groupSaldoSimpananByJenisAt(currentTo),
+      this.repository.getOutstandingPinjamanSummaryAt(currentTo),
+      this.repository.countDistinctNasabahPinjamanAktifAt(currentTo),
+      this.repository.countNasabahTotalAt(currentTo),
+      this.repository.countNasabahAktifAt(currentTo),
       this.repository.countNasabahBaru({
         tanggalFrom: currentFrom,
         tanggalTo: currentTo,
@@ -220,6 +225,9 @@ export class RekapitulasiService {
         tanggalFrom: currentFrom,
         tanggalTo: currentTo,
       }),
+      this.repository.groupSaldoSimpananByJenisAt(previousTo),
+      this.repository.getOutstandingPinjamanSummaryAt(previousTo),
+      this.repository.countNasabahTotalAt(previousTo),
     ]);
 
     const currentByJenis = this.normalizeJenisSummary(currentGrouped);
@@ -288,27 +296,41 @@ export class RekapitulasiService {
       jumlahAktifPinjaman,
     );
 
-    const anggotaAktif = this.toNumber(
-      distinctNasabahTransaksiCurrentRows[0]?.count ?? 0,
-    );
+    const anggotaAktif = nasabahAktif;
     const rasioKeaktifan = this.safeDivide(anggotaAktif, nasabahTotal);
 
-    const previousTotalSimpanan = totalSimpanan - (setoran - penarikan);
-    const previousOutstanding = totalOutstanding - pencairan + angsuran;
+    const previousSimpananPokok = this.toNumber(
+      previousSaldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.POKOK,
+      )?._sum.saldoBerjalan,
+    );
+    const previousSimpananWajib = this.toNumber(
+      previousSaldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.WAJIB,
+      )?._sum.saldoBerjalan,
+    );
+    const previousSimpananSukarela = this.toNumber(
+      previousSaldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.SUKARELA,
+      )?._sum.saldoBerjalan,
+    );
+    const previousTotalSimpanan =
+      previousSimpananPokok + previousSimpananWajib + previousSimpananSukarela;
+    const previousOutstanding = this.toNumber(
+      previousPinjamanOutstandingAgg._sum.sisaPinjaman,
+    );
     const previousTotalTransaksi =
       previousByJenis[JenisTransaksi.SETORAN].count +
       previousByJenis[JenisTransaksi.ANGSURAN].count +
       previousByJenis[JenisTransaksi.PENARIKAN].count +
       previousByJenis[JenisTransaksi.PENCAIRAN].count;
-    const previousTotalAnggota = Math.max(
-      0,
-      nasabahTotal - nasabahBaru + nasabahKeluar,
-    );
+    const previousTotalAnggota = previousNasabahTotal;
 
     return {
       periode: {
         bulan,
         tahun,
+        range: `${this.formatDateOnly(currentFrom)} - ${this.formatDateOnly(currentTo)}`,
       },
       ringkasan: {
         saldoAwal,

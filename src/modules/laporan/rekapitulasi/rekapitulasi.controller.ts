@@ -22,9 +22,9 @@ export class RekapitulasiController {
   @ApiBearerAuth('JWT-auth')
   @Permissions('laporan.read')
   @ApiOperation({
-    summary: 'Rekapitulasi operasional bulanan (real-time)',
+    summary: 'Rekapitulasi operasional bulanan (periodik)',
     description:
-      'Menggabungkan transaksi, keuangan, anggota, rasio, dan performa bulanan secara real-time langsung dari database tanpa cache.',
+      'Menggabungkan transaksi, keuangan, anggota, rasio, dan performa berdasarkan rentang tanggal periode bulanan yang dipilih.',
   })
   @ApiQuery({
     name: 'bulan',
