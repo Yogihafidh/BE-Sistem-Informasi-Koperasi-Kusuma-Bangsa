@@ -1,13 +1,11 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
-  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
-import { DashboardPeriodDto } from './dto';
 import { Permissions } from '../../common/decorators';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import { ApiAuthErrors } from '../../common/decorators/api-docs.decorator';
@@ -22,30 +20,18 @@ export class DashboardController {
   @ApiBearerAuth('JWT-auth')
   @Permissions('dashboard.read')
   @ApiOperation({ summary: 'Ringkasan dashboard koperasi' })
-  @ApiQuery({ name: 'bulan', required: true })
-  @ApiQuery({ name: 'tahun', required: true })
   @ApiResponse({
     status: 200,
     description: 'Dashboard berhasil diambil',
     content: {
       'application/json': {
         example: {
-          periode: { bulan: 3, tahun: 2026 },
-          ringkasanKeuangan: {
-            simpanan: 17000000,
-            pinjamanOutstanding: 20000000,
-            angsuranBulanIni: 3500000,
-            penarikanBulanIni: 2500000,
-            komposisiSimpanan: {
-              pokok: 8000000,
-              wajib: 6000000,
-              sukarela: 3000000,
-            },
-          },
-          performance: {
-            simpanan: 0.08,
-            transaksi: 0.12,
-            anggota: 0.02,
+          context: { generatedAt: '2026-04-02T10:00:00.000Z' },
+          ringkasanUtama: {
+            totalSimpanan: 17000000,
+            totalPinjamanOutstanding: 20000000,
+            totalAnggota: 150,
+            anggotaAktif: 120,
           },
           aktivitasTransaksi: {
             cashflowTrend: [
@@ -69,23 +55,17 @@ export class DashboardController {
             ],
           },
           keanggotaan: {
-            total: 150,
-            aktif: 120,
             tren: [
               { bulan: 'Jan 2026', anggotaBaru: 5, anggotaKeluar: 1 },
               { bulan: 'Feb 2026', anggotaBaru: 3, anggotaKeluar: 2 },
             ],
-          },
-          highlight: {
-            cashflow: 'surplus',
-            kondisi: 'stabil',
           },
         },
       },
     },
   })
   @ApiAuthErrors()
-  getDashboard(@Query() query: DashboardPeriodDto) {
-    return this.dashboardService.getDashboard(query.bulan, query.tahun);
+  getDashboard() {
+    return this.dashboardService.getDashboard();
   }
 }
