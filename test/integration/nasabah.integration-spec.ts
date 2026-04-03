@@ -264,6 +264,31 @@ describe('Nasabah Module (Integration)', () => {
         expect.arrayContaining(['KTP', 'KK', 'SLIP_GAJI']),
       );
     });
+
+    it('should reject duplicate dokumen jenis for same nasabah', async () => {
+      const pegawaiTokens = await loginAs(
+        app,
+        'nasabahpegawai',
+        'NasabahPeg123!',
+      );
+
+      const res = await authPost(
+        app,
+        `/api/nasabah/${nasabahId}/dokumen`,
+        pegawaiTokens.accessToken,
+      )
+        .attach('ktp', Buffer.from('fake-ktp-image-2'), {
+          filename: 'ktp-2.jpg',
+          contentType: 'image/jpeg',
+        })
+        .attach('kk', Buffer.from('fake-kk-image-2'), {
+          filename: 'kk-2.png',
+          contentType: 'image/png',
+        })
+        .expect(400);
+
+      expect(res.body.message).toContain('Dokumen KTP, KK sudah ada');
+    });
   });
 
   describe('PATCH /api/nasabah/:id', () => {
