@@ -33,7 +33,7 @@ jobs:
           - 6379:6379
 
       minio:
-        image: bitnami/minio:2024
+        image: bitnami/minio:latest
         env:
           MINIO_ROOT_USER: testminio
           MINIO_ROOT_PASSWORD: testminiopass
