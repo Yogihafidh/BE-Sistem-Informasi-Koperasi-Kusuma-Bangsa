@@ -55,9 +55,9 @@ export default async function globalSetup() {
     console.log('✅  Prisma migrate deploy berhasil');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(
-      '⚠️  Prisma migrate deploy gagal — pastikan PostgreSQL berjalan di DATABASE_URL\n',
-      message.slice(0, 300),
+    throw new Error(
+      '❌  Prisma migrate deploy gagal. Hentikan test untuk mencegah schema drift.\n' +
+        message.slice(0, 500),
     );
   }
 }
