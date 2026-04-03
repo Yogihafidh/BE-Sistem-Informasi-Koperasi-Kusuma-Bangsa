@@ -190,22 +190,15 @@ describe('Full Koperasi Business Flow (Integration)', () => {
   });
 
   it('Step 13: Check dashboard summary', async () => {
-    const bulan = new Date().getMonth() + 1;
-    const tahun = new Date().getFullYear();
-
-    const res = await authGet(
-      app,
-      `/api/dashboard?bulan=${bulan}&tahun=${tahun}`,
-      adminToken,
-    ).expect(200);
+    const res = await authGet(app, '/api/dashboard', adminToken).expect(200);
 
     expect(res.body).toBeDefined();
-    expect(res.body.periode).toEqual({ bulan, tahun });
-    expect(res.body.ringkasanKeuangan).toBeDefined();
-    expect(res.body.performance).toBeDefined();
+    expect(res.body.context).toBeDefined();
+    expect(res.body.ringkasanUtama).toBeDefined();
     expect(res.body.aktivitasTransaksi).toBeDefined();
     expect(res.body.kreditPinjaman).toBeDefined();
     expect(res.body.keanggotaan).toBeDefined();
-    expect(res.body.highlight).toBeDefined();
+    expect(res.body.performance).toBeUndefined();
+    expect(res.body.highlight).toBeUndefined();
   });
 });

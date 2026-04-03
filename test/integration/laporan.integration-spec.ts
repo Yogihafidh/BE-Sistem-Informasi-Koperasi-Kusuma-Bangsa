@@ -286,7 +286,13 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
 
       const body = res.body;
 
-      expect(body.periode).toEqual({ bulan: 3, tahun: 2026 });
+      expect(body.periode).toEqual(
+        expect.objectContaining({
+          bulan: 3,
+          tahun: 2026,
+          range: '2026-03-01 - 2026-03-31',
+        }),
+      );
 
       expect(body.ringkasan).toEqual({
         saldoAwal: 1100000,
@@ -298,7 +304,11 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
 
       expect(body.transaksi.totalTransaksi).toBe(5);
       expect(body.transaksi.totalNominalTransaksi).toBe(3100000);
-      expect(body.transaksi.rataRataHarian).toBeCloseTo(5 / 31, 10);
+      expect(body.transaksi.avgTransaksiPerHari).toBeCloseTo(5 / 31, 10);
+      expect(body.transaksi.rataRataNominalHarian).toBeCloseTo(
+        3100000 / 31,
+        10,
+      );
       expect(body.transaksi.breakdown).toEqual({
         pemasukan: {
           setoran: 1500000,
@@ -311,46 +321,50 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       });
 
       expect(body.keuangan).toEqual({
+        totalSimpanan: 6000000,
         simpanan: {
-          total: 6000000,
           pokok: 3000000,
           wajib: 2000000,
           sukarela: 1000000,
         },
         pinjaman: {
-          totalOutstanding: 4000000,
-          jumlahAktif: 2,
-          rataRata: 2000000,
+          totalPinjaman: 4000000,
+          jumlahPinjamanAktif: 2,
+          rataRataPinjaman: 2000000,
         },
       });
 
-      expect(body.anggota.total).toBe(3);
-      expect(body.anggota.aktif).toBe(2);
+      expect(body.anggota.totalAnggota).toBe(3);
+      expect(body.anggota.anggotaAktif).toBe(2);
       expect(body.anggota.anggotaBaru).toBe(1);
       expect(body.anggota.anggotaKeluar).toBe(1);
-      expect(body.anggota.rasioKeaktifan).toBeCloseTo(2 / 3, 10);
 
-      expect(body.rasio.likuiditas).toBeCloseTo(2000000 / 1100000, 10);
+      expect(body.rasio.rasioArusKas).toBeCloseTo(2000000 / 1100000, 10);
       expect(body.rasio.pinjamanTerhadapSimpanan).toBeCloseTo(4 / 6, 10);
-      expect(body.rasio.keaktifanAnggota).toBeCloseTo(2 / 3, 10);
+      expect(body.rasio.rasioKeaktifan).toBeCloseTo(2 / 3, 10);
 
-      expect(body.performance.simpanan.growth).toBeCloseTo(
-        1100000 / 4900000,
-        10,
-      );
-      expect(body.performance.simpanan.keterangan).toBe('meningkat');
+      expect(body.performance.simpanan.growth).toBeCloseTo(0, 10);
+      expect(body.performance.simpanan.keterangan).toBe('stagnan');
 
-      expect(body.performance.pinjaman.growth).toBeCloseTo(
-        200000 / 3800000,
-        10,
-      );
-      expect(body.performance.pinjaman.keterangan).toBe('meningkat');
+      expect(body.performance.pinjaman.growth).toBeCloseTo(0, 10);
+      expect(body.performance.pinjaman.keterangan).toBe('stagnan');
 
       expect(body.performance.transaksi.growth).toBeCloseTo(0.25, 10);
       expect(body.performance.transaksi.keterangan).toBe('meningkat');
 
-      expect(body.performance.anggota.growth).toBe(0);
-      expect(body.performance.anggota.keterangan).toBe('stabil');
+      expect(body.performance.anggota.persentaseAnggotaBaru).toBeCloseTo(
+        1 / 3,
+        10,
+      );
+      expect(body.performance.anggota.persentaseAnggotaKeluar).toBeCloseTo(
+        1 / 3,
+        10,
+      );
+      expect(body.performance.anggota.pertumbuhanBersihAnggota).toBeCloseTo(
+        0,
+        10,
+      );
+      expect(body.performance.anggota.keterangan).toBe('stagnan');
     });
 
     it('should reflect fresh data immediately without cache', async () => {
@@ -444,13 +458,13 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       expect(snapshot.body.periodeTahun).toBe(tahun);
 
       expect(snapshot.body.totalSimpanan).toBe(
-        realtime.body.keuangan.simpanan.total,
+        realtime.body.keuangan.totalSimpanan,
       );
       expect(snapshot.body.totalPenarikan).toBe(
         realtime.body.transaksi.breakdown.pengeluaran.penarikan,
       );
       expect(snapshot.body.totalPinjaman).toBe(
-        realtime.body.keuangan.pinjaman.totalOutstanding,
+        realtime.body.keuangan.pinjaman.totalPinjaman,
       );
       expect(snapshot.body.totalAngsuran).toBe(
         realtime.body.transaksi.breakdown.pemasukan.angsuran,

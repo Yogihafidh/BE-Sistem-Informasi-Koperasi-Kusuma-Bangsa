@@ -228,6 +228,69 @@ describe('Nasabah Module (Integration)', () => {
     });
   });
 
+  describe('POST /api/nasabah/:id/dokumen', () => {
+    it('should upload KTP + KK + slip gaji in one request', async () => {
+      const pegawaiTokens = await loginAs(
+        app,
+        'nasabahpegawai',
+        'NasabahPeg123!',
+      );
+
+      const res = await authPost(
+        app,
+        `/api/nasabah/${nasabahId}/dokumen`,
+        pegawaiTokens.accessToken,
+      )
+        .attach('ktp', Buffer.from('fake-ktp-image'), {
+          filename: 'ktp.jpg',
+          contentType: 'image/jpeg',
+        })
+        .attach('kk', Buffer.from('fake-kk-image'), {
+          filename: 'kk.png',
+          contentType: 'image/png',
+        })
+        .attach('slipGaji', Buffer.from('%PDF-1.4\nfake-slip-gaji'), {
+          filename: 'slip-gaji.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(201);
+
+      expect(res.body.message).toBe('Upload dokumen berhasil');
+      expect(res.body.data).toHaveLength(3);
+      const jenisDokumen = res.body.data.map(
+        (item: { jenisDokumen: string }) => item.jenisDokumen,
+      );
+      expect(jenisDokumen).toEqual(
+        expect.arrayContaining(['KTP', 'KK', 'SLIP_GAJI']),
+      );
+    });
+
+    it('should reject duplicate dokumen jenis for same nasabah', async () => {
+      const pegawaiTokens = await loginAs(
+        app,
+        'nasabahpegawai',
+        'NasabahPeg123!',
+      );
+
+      const res = await authPost(
+        app,
+        `/api/nasabah/${nasabahId}/dokumen`,
+        pegawaiTokens.accessToken,
+      )
+        .attach('ktp', Buffer.from('fake-ktp-image-2'), {
+          filename: 'ktp-2.jpg',
+          contentType: 'image/jpeg',
+        })
+        .attach('kk', Buffer.from('fake-kk-image-2'), {
+          filename: 'kk-2.png',
+          contentType: 'image/png',
+        })
+        .expect(400);
+
+      expect(res.body.message).toContain('Dokumen KTP, KK sudah ada');
+    });
+  });
+
   describe('PATCH /api/nasabah/:id', () => {
     it('should update nasabah data', async () => {
       const res = await authPatch(app, `/api/nasabah/${nasabahId}`, adminToken)

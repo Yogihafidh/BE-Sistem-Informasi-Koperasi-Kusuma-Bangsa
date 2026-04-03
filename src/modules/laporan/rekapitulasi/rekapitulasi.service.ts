@@ -6,18 +6,20 @@ export type RekapitulasiBulanan = {
   periode: {
     bulan: number;
     tahun: number;
+    range: string;
   };
   ringkasan: {
     saldoAwal: number;
-    saldoAkhir: number;
     totalPemasukan: number;
     totalPengeluaran: number;
     surplus: number;
+    saldoAkhir: number;
   };
   transaksi: {
     totalTransaksi: number;
     totalNominalTransaksi: number;
-    rataRataHarian: number;
+    avgTransaksiPerHari: number;
+    rataRataNominalHarian: number;
     breakdown: {
       pemasukan: {
         setoran: number;
@@ -30,45 +32,46 @@ export type RekapitulasiBulanan = {
     };
   };
   keuangan: {
+    totalSimpanan: number;
     simpanan: {
-      total: number;
       pokok: number;
       wajib: number;
       sukarela: number;
     };
     pinjaman: {
-      totalOutstanding: number;
-      jumlahAktif: number;
-      rataRata: number;
+      totalPinjaman: number;
+      jumlahPinjamanAktif: number;
+      rataRataPinjaman: number;
     };
   };
   anggota: {
-    total: number;
-    aktif: number;
+    totalAnggota: number;
+    anggotaAktif: number;
     anggotaBaru: number;
     anggotaKeluar: number;
-    rasioKeaktifan: number;
   };
   rasio: {
-    likuiditas: number;
+    rasioArusKas: number;
     pinjamanTerhadapSimpanan: number;
-    keaktifanAnggota: number;
+    rasioKeaktifan: number;
   };
   performance: {
     simpanan: {
-      growth: number | null;
+      growth: number;
       keterangan: string;
     };
     pinjaman: {
-      growth: number | null;
+      growth: number;
       keterangan: string;
     };
     transaksi: {
-      growth: number | null;
+      growth: number;
       keterangan: string;
     };
     anggota: {
-      growth: number | null;
+      persentaseAnggotaBaru: number;
+      persentaseAnggotaKeluar: number;
+      pertumbuhanBersihAnggota: number;
       keterangan: string;
     };
   };
@@ -106,25 +109,24 @@ export class RekapitulasiService {
     return numerator / denominator;
   }
 
-  private growthMetric(current: number, previous: number) {
-    if (previous === 0) {
-      return {
-        growth: null,
-        keterangan: 'tidak dapat dihitung',
-      };
-    }
+  private growthMetric(current: number, previous: number): number {
+    return this.safeDivide(current - previous, previous);
+  }
 
-    const growth = (current - previous) / previous;
-
+  private growthKeterangan(growth: number): string {
     if (growth > 0) {
-      return { growth, keterangan: 'meningkat' };
+      return 'meningkat';
     }
 
     if (growth < 0) {
-      return { growth, keterangan: 'menurun' };
+      return 'menurun';
     }
 
-    return { growth, keterangan: 'stabil' };
+    return 'stagnan';
+  }
+
+  private formatDateOnly(date: Date): string {
+    return date.toISOString().slice(0, 10);
   }
 
   private getPeriodRange(bulan: number, tahun: number) {
@@ -187,13 +189,15 @@ export class RekapitulasiService {
       currentGrouped,
       previousGrouped,
       cumulativeUntilPrevious,
-      distinctNasabahTransaksiCurrentRows,
       saldoSimpananByJenis,
       pinjamanOutstandingAgg,
       distinctNasabahPinjamanAktifRows,
       nasabahTotal,
+      nasabahAktif,
       nasabahBaru,
       nasabahKeluar,
+      previousSaldoSimpananByJenis,
+      previousPinjamanOutstandingAgg,
     ] = await Promise.all([
       this.repository.groupTransaksiByJenis({
         tanggalFrom: currentFrom,
@@ -204,14 +208,11 @@ export class RekapitulasiService {
         tanggalTo: previousTo,
       }),
       this.repository.groupTransaksiByJenisUntil(previousTo),
-      this.repository.countDistinctNasabahTransaksi({
-        tanggalFrom: currentFrom,
-        tanggalTo: currentTo,
-      }),
-      this.repository.groupSaldoSimpananByJenis(),
-      this.repository.getOutstandingPinjamanSummary(),
-      this.repository.countDistinctNasabahPinjamanAktif(),
-      this.repository.countNasabahTotal(),
+      this.repository.groupSaldoSimpananByJenisAt(currentTo),
+      this.repository.getOutstandingPinjamanSummaryAt(currentTo),
+      this.repository.countDistinctNasabahPinjamanAktifAt(currentTo),
+      this.repository.countNasabahTotalAt(currentTo),
+      this.repository.countNasabahAktifAt(currentTo),
       this.repository.countNasabahBaru({
         tanggalFrom: currentFrom,
         tanggalTo: currentTo,
@@ -220,6 +221,8 @@ export class RekapitulasiService {
         tanggalFrom: currentFrom,
         tanggalTo: currentTo,
       }),
+      this.repository.groupSaldoSimpananByJenisAt(previousTo),
+      this.repository.getOutstandingPinjamanSummaryAt(previousTo),
     ]);
 
     const currentByJenis = this.normalizeJenisSummary(currentGrouped);
@@ -255,8 +258,12 @@ export class RekapitulasiService {
     const jumlahHariDalamBulan = new Date(
       Date.UTC(tahun, bulan, 0),
     ).getUTCDate();
-    const rataRataHarian = this.safeDivide(
+    const avgTransaksiPerHari = this.safeDivide(
       totalTransaksi,
+      jumlahHariDalamBulan,
+    );
+    const rataRataNominalHarian = this.safeDivide(
+      totalNominalTransaksi,
       jumlahHariDalamBulan,
     );
 
@@ -288,27 +295,62 @@ export class RekapitulasiService {
       jumlahAktifPinjaman,
     );
 
-    const anggotaAktif = this.toNumber(
-      distinctNasabahTransaksiCurrentRows[0]?.count ?? 0,
-    );
-    const rasioKeaktifan = this.safeDivide(anggotaAktif, nasabahTotal);
+    const anggotaAktif = nasabahAktif;
+    const totalAnggota = nasabahTotal;
+    const rasioKeaktifan = this.safeDivide(anggotaAktif, totalAnggota);
 
-    const previousTotalSimpanan = totalSimpanan - (setoran - penarikan);
-    const previousOutstanding = totalOutstanding - pencairan + angsuran;
+    const previousSimpananPokok = this.toNumber(
+      previousSaldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.POKOK,
+      )?._sum.saldoBerjalan,
+    );
+    const previousSimpananWajib = this.toNumber(
+      previousSaldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.WAJIB,
+      )?._sum.saldoBerjalan,
+    );
+    const previousSimpananSukarela = this.toNumber(
+      previousSaldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.SUKARELA,
+      )?._sum.saldoBerjalan,
+    );
+    const previousTotalSimpanan =
+      previousSimpananPokok + previousSimpananWajib + previousSimpananSukarela;
+    const previousOutstanding = this.toNumber(
+      previousPinjamanOutstandingAgg._sum.sisaPinjaman,
+    );
     const previousTotalTransaksi =
       previousByJenis[JenisTransaksi.SETORAN].count +
       previousByJenis[JenisTransaksi.ANGSURAN].count +
       previousByJenis[JenisTransaksi.PENARIKAN].count +
       previousByJenis[JenisTransaksi.PENCAIRAN].count;
-    const previousTotalAnggota = Math.max(
-      0,
-      nasabahTotal - nasabahBaru + nasabahKeluar,
+
+    const growthSimpanan = this.growthMetric(
+      totalSimpanan,
+      previousTotalSimpanan,
     );
+    const growthPinjaman = this.growthMetric(
+      totalOutstanding,
+      previousOutstanding,
+    );
+    const growthTransaksi = this.growthMetric(
+      totalTransaksi,
+      previousTotalTransaksi,
+    );
+
+    const persentaseAnggotaBaru = this.safeDivide(nasabahBaru, totalAnggota);
+    const persentaseAnggotaKeluar = this.safeDivide(
+      nasabahKeluar,
+      totalAnggota,
+    );
+    const pertumbuhanBersihAnggota =
+      persentaseAnggotaBaru - persentaseAnggotaKeluar;
 
     return {
       periode: {
         bulan,
         tahun,
+        range: `${this.formatDateOnly(currentFrom)} - ${this.formatDateOnly(currentTo)}`,
       },
       ringkasan: {
         saldoAwal,
@@ -320,7 +362,8 @@ export class RekapitulasiService {
       transaksi: {
         totalTransaksi,
         totalNominalTransaksi,
-        rataRataHarian,
+        avgTransaksiPerHari,
+        rataRataNominalHarian,
         breakdown: {
           pemasukan: {
             setoran,
@@ -333,38 +376,51 @@ export class RekapitulasiService {
         },
       },
       keuangan: {
+        totalSimpanan,
         simpanan: {
-          total: totalSimpanan,
           pokok: simpananPokok,
           wajib: simpananWajib,
           sukarela: simpananSukarela,
         },
         pinjaman: {
-          totalOutstanding,
-          jumlahAktif: jumlahAktifPinjaman,
-          rataRata: rataRataPinjaman,
+          totalPinjaman: totalOutstanding,
+          jumlahPinjamanAktif: jumlahAktifPinjaman,
+          rataRataPinjaman,
         },
       },
       anggota: {
-        total: nasabahTotal,
-        aktif: anggotaAktif,
+        totalAnggota,
+        anggotaAktif,
         anggotaBaru: nasabahBaru,
         anggotaKeluar: nasabahKeluar,
-        rasioKeaktifan,
       },
       rasio: {
-        likuiditas: this.safeDivide(saldoAkhir, totalPengeluaran),
+        rasioArusKas: this.safeDivide(totalPemasukan, totalPengeluaran),
         pinjamanTerhadapSimpanan: this.safeDivide(
           totalOutstanding,
           totalSimpanan,
         ),
-        keaktifanAnggota: this.safeDivide(anggotaAktif, nasabahTotal),
+        rasioKeaktifan,
       },
       performance: {
-        simpanan: this.growthMetric(totalSimpanan, previousTotalSimpanan),
-        pinjaman: this.growthMetric(totalOutstanding, previousOutstanding),
-        transaksi: this.growthMetric(totalTransaksi, previousTotalTransaksi),
-        anggota: this.growthMetric(nasabahTotal, previousTotalAnggota),
+        simpanan: {
+          growth: growthSimpanan,
+          keterangan: this.growthKeterangan(growthSimpanan),
+        },
+        pinjaman: {
+          growth: growthPinjaman,
+          keterangan: this.growthKeterangan(growthPinjaman),
+        },
+        transaksi: {
+          growth: growthTransaksi,
+          keterangan: this.growthKeterangan(growthTransaksi),
+        },
+        anggota: {
+          persentaseAnggotaBaru,
+          persentaseAnggotaKeluar,
+          pertumbuhanBersihAnggota,
+          keterangan: this.growthKeterangan(pertumbuhanBersihAnggota),
+        },
       },
     };
   }

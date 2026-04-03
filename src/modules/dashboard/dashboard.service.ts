@@ -1,29 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JenisSimpanan, JenisTransaksi, Prisma } from '@prisma/client';
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { DashboardRepository } from './dashboard.repository';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
-import { CacheService } from '../../common/cache/cache.service';
 
 @Injectable()
 export class DashboardService {
-  private readonly logger = new Logger(DashboardService.name);
-  private readonly dashboardCacheTtlSeconds: number;
-
   constructor(
     private readonly dashboardRepository: DashboardRepository,
     private readonly settingsService: SettingsService,
-    private readonly cacheService: CacheService,
-    private readonly configService: ConfigService,
-  ) {
-    const configured =
-      this.configService.get<number>('app.cacheTtlDashboardSeconds') ?? 45;
-    this.dashboardCacheTtlSeconds = Math.min(
-      60,
-      Math.max(30, Math.floor(configured)),
-    );
-  }
+  ) {}
 
   private toNumber(value: Prisma.Decimal | number | bigint | null | undefined) {
     if (value === null || value === undefined) {
@@ -35,25 +21,25 @@ export class DashboardService {
     return value instanceof Prisma.Decimal ? value.toNumber() : Number(value);
   }
 
-  private getMonthRange(bulan: number, tahun: number) {
-    const start = new Date(tahun, bulan - 1, 1, 0, 0, 0, 0);
-    const end = new Date(tahun, bulan, 0, 23, 59, 59, 999);
-    return { start, end };
-  }
+  private getRollingMonths(trendMonths: number, now: Date) {
+    const months: Array<{ year: number; month: number; label: string }> = [];
 
-  private getTrendRange(bulan: number, tahun: number, trendMonths: number) {
-    const endMonth = new Date(Date.UTC(tahun, bulan - 1, 1));
-    const startMonth = new Date(Date.UTC(tahun, bulan - trendMonths, 1));
+    for (let i = trendMonths - 1; i >= 0; i -= 1) {
+      const date = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1),
+      );
 
-    return { startMonth, endMonth };
-  }
-
-  private calculateGrowth(current: number, previous: number): number {
-    if (previous <= 0) {
-      return 0;
+      months.push({
+        year: date.getUTCFullYear(),
+        month: date.getUTCMonth() + 1,
+        label: this.formatMonthLabel(
+          date.getUTCMonth() + 1,
+          date.getUTCFullYear(),
+        ),
+      });
     }
 
-    return (current - previous) / previous;
+    return months;
   }
 
   private formatMonthLabel(bulan: number, tahun: number) {
@@ -74,70 +60,41 @@ export class DashboardService {
     return `${monthNames[bulan - 1]} ${tahun}`;
   }
 
-  private getDashboardCacheKey(bulan: number, tahun: number) {
-    return `dashboard:${bulan}:${tahun}`;
-  }
-
-  async getDashboard(bulan: number, tahun: number) {
-    const cacheKey = this.getDashboardCacheKey(bulan, tahun);
-    const cached = await this.cacheService.getJson<unknown>(cacheKey);
-    if (cached !== null) {
-      this.logger.debug(`cache hit: ${cacheKey}`);
-      return cached;
-    }
-    this.logger.debug(`cache miss: ${cacheKey}`);
-
+  async getDashboard() {
     const trendMonthsSetting = await this.settingsService.getNumber(
       SETTING_KEYS.DASHBOARD_TREND_MONTHS,
     );
     const trendMonths = Math.max(1, Math.floor(trendMonthsSetting));
+    const now = new Date();
+    const rollingMonths = this.getRollingMonths(trendMonths, now);
 
-    const { start, end } = this.getMonthRange(bulan, tahun);
-    const previous = this.getMonthRange(
-      bulan === 1 ? 12 : bulan - 1,
-      bulan === 1 ? tahun - 1 : tahun,
-    );
-    const trendRange = this.getTrendRange(bulan, tahun, trendMonths);
+    const trendRange = {
+      startMonth: new Date(
+        Date.UTC(rollingMonths[0].year, rollingMonths[0].month - 1, 1),
+      ),
+      endMonth: new Date(
+        Date.UTC(
+          rollingMonths.at(-1)!.year,
+          rollingMonths.at(-1)!.month - 1,
+          1,
+        ),
+      ),
+    };
 
     const [
-      currentGroupedTransaksi,
-      currentTotalTransaksi,
-      previousTotalTransaksi,
-      saldoGrouped,
+      saldoAgg,
       totalOutstandingAgg,
       topOutstanding,
       totalNasabah,
       aktifNasabah,
-      nasabahBaru,
-      nasabahKeluar,
       cashflowTrendRows,
       keanggotaanTrendRows,
     ] = await Promise.all([
-      this.dashboardRepository.groupTransaksiByJenis({
-        tanggalFrom: start,
-        tanggalTo: end,
-      }),
-      this.dashboardRepository.countTransaksi({
-        tanggalFrom: start,
-        tanggalTo: end,
-      }),
-      this.dashboardRepository.countTransaksi({
-        tanggalFrom: previous.start,
-        tanggalTo: previous.end,
-      }),
-      this.dashboardRepository.groupSaldoSimpananByJenis(),
+      this.dashboardRepository.sumSaldoSimpanan(),
       this.dashboardRepository.sumPinjamanAktifNominal(),
       this.dashboardRepository.listTopOutstandingPinjaman(5),
       this.dashboardRepository.countNasabahTotal(),
       this.dashboardRepository.countNasabahAktif(),
-      this.dashboardRepository.countNasabahBaru({
-        tanggalFrom: start,
-        tanggalTo: end,
-      }),
-      this.dashboardRepository.countNasabahKeluar({
-        tanggalFrom: start,
-        tanggalTo: end,
-      }),
       this.dashboardRepository.getCashflowTrend({
         startMonth: trendRange.startMonth,
         endMonth: trendRange.endMonth,
@@ -148,126 +105,63 @@ export class DashboardService {
       }),
     ]);
 
-    const nominalByJenis = (rows: typeof currentGroupedTransaksi) => {
-      const map = {
-        [JenisTransaksi.SETORAN]: 0,
-        [JenisTransaksi.ANGSURAN]: 0,
-        [JenisTransaksi.PENARIKAN]: 0,
-        [JenisTransaksi.PENCAIRAN]: 0,
-      };
-
-      for (const row of rows) {
-        map[row.jenisTransaksi] = this.toNumber(row._sum.nominal);
-      }
-
-      return map;
-    };
-
-    const currentNominal = nominalByJenis(currentGroupedTransaksi);
-    const komposisiSimpanan = {
-      pokok: 0,
-      wajib: 0,
-      sukarela: 0,
-    };
-    for (const row of saldoGrouped) {
-      if (row.jenisSimpanan === JenisSimpanan.POKOK) {
-        komposisiSimpanan.pokok = this.toNumber(row._sum.saldoBerjalan);
-      }
-      if (row.jenisSimpanan === JenisSimpanan.WAJIB) {
-        komposisiSimpanan.wajib = this.toNumber(row._sum.saldoBerjalan);
-      }
-      if (row.jenisSimpanan === JenisSimpanan.SUKARELA) {
-        komposisiSimpanan.sukarela = this.toNumber(row._sum.saldoBerjalan);
-      }
-    }
-
-    const totalSimpanan =
-      komposisiSimpanan.pokok +
-      komposisiSimpanan.wajib +
-      komposisiSimpanan.sukarela;
-    const pinjamanOutstanding = this.toNumber(
+    const totalSimpanan = this.toNumber(saldoAgg._sum.saldoBerjalan);
+    const totalPinjamanOutstanding = this.toNumber(
       totalOutstandingAgg._sum.sisaPinjaman,
     );
 
-    const previousSimpanan = Math.max(
-      0,
-      totalSimpanan - currentNominal.SETORAN + currentNominal.PENARIKAN,
+    const cashflowTrendMap = new Map(
+      cashflowTrendRows.map((row) => [
+        `${row.year}-${String(row.month).padStart(2, '0')}`,
+        {
+          kasMasuk: this.toNumber(row.kasMasuk),
+          kasKeluar: this.toNumber(row.kasKeluar),
+        },
+      ]),
     );
-    const previousAktifNasabah = Math.max(
-      0,
-      aktifNasabah - nasabahBaru + nasabahKeluar,
+
+    const cashflowTrend = rollingMonths.map((month) => {
+      const key = `${month.year}-${String(month.month).padStart(2, '0')}`;
+      const value = cashflowTrendMap.get(key);
+
+      return {
+        bulan: month.label,
+        kasMasuk: value?.kasMasuk ?? 0,
+        kasKeluar: value?.kasKeluar ?? 0,
+      };
+    });
+
+    const keanggotaanTrendMap = new Map(
+      keanggotaanTrendRows.map((row) => [
+        `${row.year}-${String(row.month).padStart(2, '0')}`,
+        {
+          anggotaBaru: this.toNumber(row.anggotaBaru),
+          anggotaKeluar: this.toNumber(row.anggotaKeluar),
+        },
+      ]),
     );
 
-    const performance = {
-      simpanan: this.calculateGrowth(totalSimpanan, previousSimpanan),
-      transaksi: this.calculateGrowth(
-        currentTotalTransaksi,
-        previousTotalTransaksi,
-      ),
-      anggota: this.calculateGrowth(aktifNasabah, previousAktifNasabah),
-    };
-
-    const cashflowTrend = cashflowTrendRows
+    const trenKeanggotaan = rollingMonths
       .map((row) => ({
-        year: row.year,
-        month: row.month,
-        bulan: this.formatMonthLabel(row.month, row.year),
-        kasMasuk: this.toNumber(row.kasMasuk),
-        kasKeluar: this.toNumber(row.kasKeluar),
+        key: `${row.year}-${String(row.month).padStart(2, '0')}`,
+        bulan: row.label,
       }))
-      .filter((row) => row.kasMasuk !== 0 || row.kasKeluar !== 0)
-      .sort((a, b) => (a.year - b.year) * 12 + (a.month - b.month))
-      .map(({ bulan: monthLabel, kasMasuk, kasKeluar }) => ({
-        bulan: monthLabel,
-        kasMasuk,
-        kasKeluar,
-      }));
-
-    const trenKeanggotaan = keanggotaanTrendRows
       .map((row) => ({
-        year: row.year,
-        month: row.month,
-        bulan: this.formatMonthLabel(row.month, row.year),
-        anggotaBaru: this.toNumber(row.anggotaBaru),
-        anggotaKeluar: this.toNumber(row.anggotaKeluar),
-      }))
-      .filter((row) => row.anggotaBaru !== 0 || row.anggotaKeluar !== 0)
-      .sort((a, b) => (a.year - b.year) * 12 + (a.month - b.month))
-      .map(({ bulan: monthLabel, anggotaBaru, anggotaKeluar }) => ({
-        bulan: monthLabel,
-        anggotaBaru,
-        anggotaKeluar,
+        bulan: row.bulan,
+        anggotaBaru: keanggotaanTrendMap.get(row.key)?.anggotaBaru ?? 0,
+        anggotaKeluar: keanggotaanTrendMap.get(row.key)?.anggotaKeluar ?? 0,
       }));
-
-    const kasMasukBulanIni = currentNominal.SETORAN + currentNominal.ANGSURAN;
-    const kasKeluarBulanIni =
-      currentNominal.PENARIKAN + currentNominal.PENCAIRAN;
-
-    const cashflow: 'surplus' | 'defisit' =
-      kasMasukBulanIni >= kasKeluarBulanIni ? 'surplus' : 'defisit';
-
-    const negatifCount = [
-      performance.simpanan,
-      performance.transaksi,
-      performance.anggota,
-    ].filter((value) => value < 0).length;
-    let kondisi: 'stabil' | 'belum stabil' | 'berisiko' = 'belum stabil';
-    if (cashflow === 'surplus' && negatifCount <= 1) {
-      kondisi = 'stabil';
-    } else if (cashflow === 'defisit' && negatifCount >= 2) {
-      kondisi = 'berisiko';
-    }
 
     const payload = {
-      periode: { bulan, tahun },
-      ringkasanKeuangan: {
-        simpanan: totalSimpanan,
-        pinjamanOutstanding,
-        angsuranBulanIni: currentNominal.ANGSURAN,
-        penarikanBulanIni: currentNominal.PENARIKAN,
-        komposisiSimpanan,
+      context: {
+        generatedAt: now.toISOString(),
       },
-      performance,
+      ringkasanUtama: {
+        totalSimpanan,
+        totalPinjamanOutstanding,
+        totalAnggota: totalNasabah,
+        anggotaAktif: aktifNasabah,
+      },
       aktivitasTransaksi: {
         cashflowTrend,
       },
@@ -279,21 +173,9 @@ export class DashboardService {
         })),
       },
       keanggotaan: {
-        total: totalNasabah,
-        aktif: aktifNasabah,
         tren: trenKeanggotaan,
       },
-      highlight: {
-        cashflow,
-        kondisi,
-      },
     };
-
-    await this.cacheService.setJson(
-      cacheKey,
-      payload,
-      this.dashboardCacheTtlSeconds,
-    );
 
     return payload;
   }

@@ -50,13 +50,38 @@ jobs:
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/testdb
 
-      - name: Push schema (faster than migrate deploy)
-        run: npx prisma db push
+      - name: Apply Prisma migrations
+        run: npx prisma migrate deploy
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/testdb
+
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio-test \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=testminio \
+            -e MINIO_ROOT_PASSWORD=testminiopass \
+            minio/minio:latest server /data --console-address ":9001"
+
+      - name: Wait for MinIO
+        run: |
+          for i in {1..30}; do
+            if (echo > /dev/tcp/localhost/9000) >/dev/null 2>&1; then
+              echo "MinIO is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "MinIO did not become ready in time"
+          exit 1
 
       - name: Run Integration Test
         run: npm run test:integration
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/testdb
           REDIS_URL: redis://localhost:6379
+          MINIO_ENDPOINT: localhost
+          MINIO_PORT: 9000
+          MINIO_USE_SSL: 'false'
+          MINIO_ACCESS_KEY: testminio
+          MINIO_SECRET_KEY: testminiopass

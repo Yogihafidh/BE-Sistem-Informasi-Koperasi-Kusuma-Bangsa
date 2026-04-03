@@ -11,12 +11,11 @@ import {
   loginAsAdmin,
   authGet,
   authPost,
-  authPatch,
+  authPut,
   registerAndLogin,
 } from '../helpers/auth.helper';
 import {
   createFullNasabah,
-  createTestNasabah,
   createTestPinjaman,
 } from '../helpers/factory.helper';
 
@@ -24,9 +23,6 @@ describe('Dashboard Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
   const noAccessPassword = ['No', 'Access', '123', '!'].join('');
-
-  const bulan = new Date().getMonth() + 1;
-  const tahun = new Date().getFullYear();
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -41,32 +37,17 @@ describe('Dashboard Module (Integration)', () => {
   });
 
   async function getDashboard() {
-    const res = await authGet(
-      app,
-      `/api/dashboard?bulan=${bulan}&tahun=${tahun}`,
-      adminToken,
-    ).expect(200);
+    const res = await authGet(app, '/api/dashboard', adminToken).expect(200);
 
     return res.body as {
-      periode: {
-        bulan: number;
-        tahun: number;
+      context: {
+        generatedAt: string;
       };
-      ringkasanKeuangan: {
-        simpanan: number;
-        pinjamanOutstanding: number;
-        angsuranBulanIni: number;
-        penarikanBulanIni: number;
-        komposisiSimpanan: {
-          pokok: number;
-          wajib: number;
-          sukarela: number;
-        };
-      };
-      performance: {
-        simpanan: number;
-        transaksi: number;
-        anggota: number;
+      ringkasanUtama: {
+        totalSimpanan: number;
+        totalPinjamanOutstanding: number;
+        totalAnggota: number;
+        anggotaAktif: number;
       };
       aktivitasTransaksi: {
         cashflowTrend: Array<{
@@ -83,17 +64,11 @@ describe('Dashboard Module (Integration)', () => {
         }>;
       };
       keanggotaan: {
-        total: number;
-        aktif: number;
         tren: Array<{
           bulan: string;
           anggotaBaru: number;
           anggotaKeluar: number;
         }>;
-      };
-      highlight: {
-        cashflow: string;
-        kondisi: string;
       };
     };
   }
@@ -101,30 +76,22 @@ describe('Dashboard Module (Integration)', () => {
   describe('GET /api/dashboard', () => {
     it('should return response following new dashboard contract', async () => {
       const body = await getDashboard();
+      const rawBody = body as unknown as Record<string, unknown>;
 
-      expect(body.data).toBeUndefined();
-      expect(body.message).toBeUndefined();
+      expect(rawBody.data).toBeUndefined();
+      expect(rawBody.message).toBeUndefined();
 
-      expect(body.periode).toEqual({ bulan, tahun });
-      expect(body.ringkasanKeuangan).toEqual(
+      expect(body.context).toEqual(
         expect.objectContaining({
-          simpanan: expect.any(Number),
-          pinjamanOutstanding: expect.any(Number),
-          angsuranBulanIni: expect.any(Number),
-          penarikanBulanIni: expect.any(Number),
-          komposisiSimpanan: expect.objectContaining({
-            pokok: expect.any(Number),
-            wajib: expect.any(Number),
-            sukarela: expect.any(Number),
-          }),
+          generatedAt: expect.any(String),
         }),
       );
-
-      expect(body.performance).toEqual(
+      expect(body.ringkasanUtama).toEqual(
         expect.objectContaining({
-          simpanan: expect.any(Number),
-          transaksi: expect.any(Number),
-          anggota: expect.any(Number),
+          totalSimpanan: expect.any(Number),
+          totalPinjamanOutstanding: expect.any(Number),
+          totalAnggota: expect.any(Number),
+          anggotaAktif: expect.any(Number),
         }),
       );
 
@@ -132,37 +99,21 @@ describe('Dashboard Module (Integration)', () => {
       expect(body.kreditPinjaman.topOutstanding).toEqual(expect.any(Array));
       expect(body.keanggotaan).toEqual(
         expect.objectContaining({
-          total: expect.any(Number),
-          aktif: expect.any(Number),
           tren: expect.any(Array),
         }),
       );
-      expect(body.highlight).toEqual(
-        expect.objectContaining({
-          cashflow: expect.stringMatching(/^(surplus|defisit)$/),
-          kondisi: expect.stringMatching(/^(stabil|belum stabil|berisiko)$/),
-        }),
+
+      expect(rawBody.performance).toBeUndefined();
+      expect(rawBody.highlight).toBeUndefined();
+      expect(rawBody.ringkasanKeuangan).toBeUndefined();
+
+      expect(new Date(body.context.generatedAt).toISOString()).toBe(
+        body.context.generatedAt,
       );
     });
 
-    it('should require bulan and tahun query params', async () => {
-      await authGet(app, '/api/dashboard', adminToken).expect(400);
-    });
-
-    it('should reject invalid bulan (>12)', async () => {
-      await authGet(
-        app,
-        `/api/dashboard?bulan=13&tahun=${tahun}`,
-        adminToken,
-      ).expect(400);
-    });
-
-    it('should reject invalid tahun (<2000)', async () => {
-      await authGet(
-        app,
-        `/api/dashboard?bulan=1&tahun=1990`,
-        adminToken,
-      ).expect(400);
+    it('should return dashboard without period query params', async () => {
+      await authGet(app, '/api/dashboard', adminToken).expect(200);
     });
   });
 
@@ -174,11 +125,7 @@ describe('Dashboard Module (Integration)', () => {
         password: noAccessPassword,
       });
 
-      await authGet(
-        app,
-        `/api/dashboard?bulan=${bulan}&tahun=${tahun}`,
-        user.accessToken,
-      ).expect(403);
+      await authGet(app, '/api/dashboard', user.accessToken).expect(403);
     });
   });
 
@@ -187,7 +134,7 @@ describe('Dashboard Module (Integration)', () => {
       await clearTestCache();
     });
 
-    it('should serve cached payload within dashboard TTL after transaction mutation', async () => {
+    it('should reflect latest data immediately after transaction mutation', async () => {
       const { rekeningList } = await createFullNasabah(app, adminToken);
       const sukarela = rekeningList.find(
         (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'SUKARELA',
@@ -206,26 +153,13 @@ describe('Dashboard Module (Integration)', () => {
         .expect(201);
 
       const after = await getDashboard();
-      expect(after).toEqual(before);
-    });
-
-    it('should update active members after nasabah verification', async () => {
-      const before = await getDashboard();
-      const nasabah = await createTestNasabah(app, adminToken, {
-        nama: `Calon Aktif ${Date.now()}`,
-      });
-
-      await authPatch(app, `/api/nasabah/${nasabah.id}/verifikasi`, adminToken)
-        .send({ status: 'AKTIF', catatan: 'Activation for dashboard trend' })
-        .expect(200);
-
-      const after = await getDashboard();
-      expect(after.keanggotaan.aktif).toBeGreaterThanOrEqual(
-        before.keanggotaan.aktif,
+      expect(after.context.generatedAt).not.toBe(before.context.generatedAt);
+      expect(after.ringkasanUtama.totalSimpanan).toBeGreaterThanOrEqual(
+        before.ringkasanUtama.totalSimpanan,
       );
     });
 
-    it('should include namaAnggota in topOutstanding and exclude dummy zero rows in trends', async () => {
+    it('should include namaAnggota in topOutstanding and keep rolling trends fixed-length', async () => {
       const { nasabah } = await createFullNasabah(app, adminToken);
       const pinjaman = await createTestPinjaman(app, adminToken, nasabah.id, {
         jumlahPinjaman: 2000000,
@@ -237,6 +171,12 @@ describe('Dashboard Module (Integration)', () => {
         .expect(201);
 
       const body = await getDashboard();
+      const trendSettingRes = await authGet(
+        app,
+        '/api/settings/dashboard.trendMonths',
+        adminToken,
+      ).expect(200);
+      const expectedTrendLength = Number(trendSettingRes.body.data.value);
 
       const withName = body.kreditPinjaman.topOutstanding.find(
         (item) => item.pinjamanId === pinjaman.id,
@@ -245,30 +185,52 @@ describe('Dashboard Module (Integration)', () => {
       expect(withName?.namaAnggota).toEqual(expect.any(String));
       expect(withName?.namaAnggota.length).toBeGreaterThan(0);
 
-      expect(
-        body.aktivitasTransaksi.cashflowTrend.every(
-          (row) => row.kasMasuk !== 0 || row.kasKeluar !== 0,
-        ),
-      ).toBe(true);
-      expect(
-        body.keanggotaan.tren.every(
-          (row) => row.anggotaBaru !== 0 || row.anggotaKeluar !== 0,
-        ),
-      ).toBe(true);
+      expect(body.aktivitasTransaksi.cashflowTrend.length).toBe(
+        expectedTrendLength,
+      );
+      expect(body.keanggotaan.tren.length).toBe(expectedTrendLength);
       expect(
         body.aktivitasTransaksi.cashflowTrend
           .map((row) => row.bulan)
           .every((value) => typeof value === 'string'),
       ).toBe(true);
+
+      expect(
+        body.keanggotaan.tren
+          .map((row) => row.bulan)
+          .every((value) => typeof value === 'string'),
+      ).toBe(true);
     });
 
-    it('should expose deterministic highlight values', async () => {
+    it('should keep ringkasan utama anggota totals consistent with nasabah endpoint', async () => {
+      const dashboard = await getDashboard();
+      const nasabahAll = await authGet(app, '/api/nasabah', adminToken).expect(
+        200,
+      );
+      const nasabahAktif = await authGet(
+        app,
+        '/api/nasabah?status=AKTIF',
+        adminToken,
+      ).expect(200);
+
+      const totalNasabah =
+        nasabahAll.body.pagination?.total ?? nasabahAll.body.data.length;
+      const totalNasabahAktif =
+        nasabahAktif.body.pagination?.total ?? nasabahAktif.body.data.length;
+
+      expect(dashboard.ringkasanUtama.totalAnggota).toBe(totalNasabah);
+      expect(dashboard.ringkasanUtama.anggotaAktif).toBe(totalNasabahAktif);
+    });
+
+    it('should follow dashboard trendMonths setting updates', async () => {
+      await authPut(app, '/api/settings/dashboard.trendMonths', adminToken)
+        .send({ value: '3' })
+        .expect(200);
+
       const body = await getDashboard();
 
-      expect(['surplus', 'defisit']).toContain(body.highlight.cashflow);
-      expect(['stabil', 'belum stabil', 'berisiko']).toContain(
-        body.highlight.kondisi,
-      );
+      expect(body.aktivitasTransaksi.cashflowTrend.length).toBe(3);
+      expect(body.keanggotaan.tren.length).toBe(3);
     });
   });
 });
