@@ -68,9 +68,9 @@ export class LaporanService {
     const payload = {
       periodeBulan: bulan,
       periodeTahun: tahun,
-      totalSimpanan: rekap.keuangan.simpanan.total,
+      totalSimpanan: rekap.keuangan.totalSimpanan,
       totalPenarikan: rekap.transaksi.breakdown.pengeluaran.penarikan,
-      totalPinjaman: rekap.keuangan.pinjaman.totalOutstanding,
+      totalPinjaman: rekap.keuangan.pinjaman.totalPinjaman,
       totalAngsuran: rekap.transaksi.breakdown.pemasukan.angsuran,
       saldoAkhir: rekap.ringkasan.saldoAkhir,
       generatedById: userId,
