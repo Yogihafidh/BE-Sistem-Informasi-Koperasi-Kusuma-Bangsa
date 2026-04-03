@@ -32,14 +32,6 @@ jobs:
         ports:
           - 6379:6379
 
-      minio:
-        image: bitnami/minio:latest
-        env:
-          MINIO_ROOT_USER: testminio
-          MINIO_ROOT_PASSWORD: testminiopass
-        ports:
-          - 9000:9000
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -62,6 +54,14 @@ jobs:
         run: npx prisma migrate deploy
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/testdb
+
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio-test \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=testminio \
+            -e MINIO_ROOT_PASSWORD=testminiopass \
+            minio/minio:latest server /data --console-address ":9001"
 
       - name: Wait for MinIO
         run: |
