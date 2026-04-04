@@ -255,6 +255,8 @@ async function seed() {
       'permission.delete',
       'user.read',
       'user.update',
+      'user.delete',
+      'user.create',
       'pegawai.create',
       'pegawai.read',
       'pegawai.update',
@@ -344,6 +346,7 @@ async function seed() {
       'laporan.read',
       'laporan.generate',
       'laporan.finalize',
+      'dashboard.read',
     ];
 
     const pimpinanPermissions = await prisma.permission.findMany({
