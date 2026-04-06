@@ -8,6 +8,7 @@ const {
 const prisma = new PrismaClient();
 
 const DUMMY_PREFIX = 'DMY2026-';
+const DUMMY_MARKER = 'SEED_DUMMY_BANYUMAS_2026';
 const YEAR = 2026;
 
 function dt(yyyy, mm, dd, hh = 0, mi = 0, ss = 0) {
@@ -38,7 +39,10 @@ async function sumTransaksiByJenis(args) {
     where: {
       deletedAt: null,
       nasabah: {
-        nomorAnggota: { startsWith: DUMMY_PREFIX },
+        OR: [
+          { nomorAnggota: { startsWith: DUMMY_PREFIX } },
+          { catatan: DUMMY_MARKER },
+        ],
       },
       tanggal: {
         gte: args.start,
@@ -82,7 +86,12 @@ async function main() {
   console.log('🔎 Validasi dummy koperasi dimulai...');
 
   const dummyNasabah = await prisma.nasabah.findMany({
-    where: { nomorAnggota: { startsWith: DUMMY_PREFIX } },
+    where: {
+      OR: [
+        { nomorAnggota: { startsWith: DUMMY_PREFIX } },
+        { catatan: DUMMY_MARKER },
+      ],
+    },
     select: { id: true, nomorAnggota: true, status: true },
   });
 
@@ -238,7 +247,10 @@ async function main() {
   const loans = await prisma.pinjaman.findMany({
     where: {
       nasabah: {
-        nomorAnggota: { startsWith: DUMMY_PREFIX },
+        OR: [
+          { nomorAnggota: { startsWith: DUMMY_PREFIX } },
+          { catatan: DUMMY_MARKER },
+        ],
       },
       deletedAt: null,
     },
@@ -298,7 +310,12 @@ async function main() {
   const dashboardSaldoSimpanan = await prisma.rekeningSimpanan.aggregate({
     where: {
       deletedAt: null,
-      nasabah: { nomorAnggota: { startsWith: DUMMY_PREFIX } },
+      nasabah: {
+        OR: [
+          { nomorAnggota: { startsWith: DUMMY_PREFIX } },
+          { catatan: DUMMY_MARKER },
+        ],
+      },
     },
     _sum: { saldoBerjalan: true },
   });
@@ -306,7 +323,12 @@ async function main() {
   const dashboardOutstanding = await prisma.pinjaman.aggregate({
     where: {
       deletedAt: null,
-      nasabah: { nomorAnggota: { startsWith: DUMMY_PREFIX } },
+      nasabah: {
+        OR: [
+          { nomorAnggota: { startsWith: DUMMY_PREFIX } },
+          { catatan: DUMMY_MARKER },
+        ],
+      },
       status: PinjamanStatus.DISETUJUI,
     },
     _sum: { sisaPinjaman: true },
@@ -333,7 +355,12 @@ async function main() {
 
   const softDeletedRekening = await prisma.rekeningSimpanan.count({
     where: {
-      nasabah: { nomorAnggota: { startsWith: DUMMY_PREFIX } },
+      nasabah: {
+        OR: [
+          { nomorAnggota: { startsWith: DUMMY_PREFIX } },
+          { catatan: DUMMY_MARKER },
+        ],
+      },
       deletedAt: { not: null },
     },
   });
