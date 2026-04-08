@@ -729,7 +729,7 @@ export class NasabahService {
         jenisDokumen: dokumen.jenisDokumen,
         fileKey: dokumen.fileKey,
         uploadedAt: dokumen.uploadedAt.toISOString(),
-        deletedAt: dokumen.deletedAt?.toISOString() ?? null,
+        deletedAt: null,
       },
       after: {
         deletedAt: new Date().toISOString(),
