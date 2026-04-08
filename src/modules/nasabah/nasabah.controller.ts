@@ -399,6 +399,7 @@ export class NasabahController {
     @Param('jenisDokumen', new ParseEnumPipe(JenisDokumen))
     jenisDokumen: JenisDokumen,
     @CurrentUser() user: UserFromJwt,
+    @Req() request: Request,
     @UploadedFile()
     file: {
       buffer: Buffer;
@@ -412,6 +413,7 @@ export class NasabahController {
       jenisDokumen,
       file,
       user,
+      request.ip,
     );
   }
 

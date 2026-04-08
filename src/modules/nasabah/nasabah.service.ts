@@ -576,6 +576,7 @@ export class NasabahService {
     jenisDokumen: JenisDokumen,
     file: UploadFile,
     user: RequestUser,
+    ipAddress?: string,
   ) {
     if (!file) {
       throw new BadRequestException('File dokumen wajib diunggah');
@@ -641,6 +642,28 @@ export class NasabahService {
           fileKey,
         });
 
+    await this.auditTrailService.log({
+      action: existing ? AuditAction.UPDATE : AuditAction.CREATE,
+      entityName: 'NasabahDokumen',
+      entityId: updatedDokumen.id,
+      userId: user.userId,
+      before: existing
+        ? {
+            nasabahId: existing.nasabahId,
+            jenisDokumen: existing.jenisDokumen,
+            fileKey: existing.fileKey,
+            uploadedAt: existing.uploadedAt.toISOString(),
+          }
+        : null,
+      after: {
+        nasabahId: updatedDokumen.nasabahId,
+        jenisDokumen: updatedDokumen.jenisDokumen,
+        fileKey: updatedDokumen.fileKey,
+        uploadedAt: updatedDokumen.uploadedAt.toISOString(),
+      },
+      ipAddress,
+    });
+
     const accessibleFileUrl = this.minioService.buildAccessibleUrl(
       bucket,
       objectName,
@@ -658,7 +681,11 @@ export class NasabahService {
     };
   }
 
-  async deleteDokumenNasabah(dokumenId: number, user: RequestUser) {
+  async deleteDokumenNasabah(
+    dokumenId: number,
+    user: RequestUser,
+    ipAddress?: string,
+  ) {
     const dokumen =
       await this.nasabahRepository.findNasabahDokumenById(dokumenId);
     if (!dokumen) {
@@ -691,6 +718,24 @@ export class NasabahService {
     }
 
     await this.nasabahRepository.softDeleteNasabahDokumen(dokumenId);
+
+    await this.auditTrailService.log({
+      action: AuditAction.DELETE,
+      entityName: 'NasabahDokumen',
+      entityId: dokumenId,
+      userId: user.userId,
+      before: {
+        nasabahId: dokumen.nasabahId,
+        jenisDokumen: dokumen.jenisDokumen,
+        fileKey: dokumen.fileKey,
+        uploadedAt: dokumen.uploadedAt.toISOString(),
+        deletedAt: dokumen.deletedAt?.toISOString() ?? null,
+      },
+      after: {
+        deletedAt: new Date().toISOString(),
+      },
+      ipAddress,
+    });
 
     return {
       message: 'Dokumen nasabah berhasil dihapus',

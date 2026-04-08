@@ -18,7 +18,7 @@ import {
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { AssignRolesDto, UpdateUserDto } from './dto';
-import { Permissions } from '../../common/decorators';
+import { CurrentUser, Permissions } from '../../common/decorators';
 import {
   ApiAuthErrors,
   ApiBadRequestExample,
@@ -26,6 +26,7 @@ import {
 } from '../../common/decorators/api-docs.decorator';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import type { Request } from 'express';
+import type { UserFromJwt } from './interfaces/jwt-payload.interface';
 
 @ApiTags('users')
 @Controller('users')
@@ -61,8 +62,15 @@ export class UsersController {
   updateUser(
     @Param('id', ParseIntPipe) userId: number,
     @Body() updateUserDto: UpdateUserDto,
+    @CurrentUser() user: UserFromJwt,
+    @Req() request: Request,
   ) {
-    return this.authService.updateUser(userId, updateUserDto);
+    return this.authService.updateUser(
+      userId,
+      updateUserDto,
+      user.userId,
+      request.ip,
+    );
   }
 
   // ==================== USER-ROLE ASSIGNMENT ENDPOINTS ====================

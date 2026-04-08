@@ -57,7 +57,7 @@ export class AuthService {
   }
 
   // ==================== AUTHENTICATION ====================
-  async register(registerDto: RegisterDto) {
+  async register(registerDto: RegisterDto, ipAddress?: string) {
     // Check if username already exists
     const existingUsername = await this.authRepository.findUserByUsername(
       registerDto.username,
@@ -85,6 +85,19 @@ export class AuthService {
       username: registerDto.username,
       email: registerDto.email,
       password: hashedPassword,
+    });
+
+    await this.auditTrailService.log({
+      action: AuditAction.CREATE,
+      entityName: 'User',
+      entityId: user.id,
+      userId: user.id,
+      after: {
+        username: user.username,
+        email: user.email,
+        isActive: user.isActive,
+      },
+      ipAddress,
     });
 
     return {
@@ -219,7 +232,11 @@ export class AuthService {
     };
   }
 
-  async changePassword(userId: number, changePasswordDto: ChangePasswordDto) {
+  async changePassword(
+    userId: number,
+    changePasswordDto: ChangePasswordDto,
+    ipAddress?: string,
+  ) {
     const user = await this.authRepository.findUserById(userId);
 
     if (!user) {
@@ -250,12 +267,28 @@ export class AuthService {
     // Update password
     await this.authRepository.updateUserPassword(userId, hashedPassword);
 
+    const changedAt = new Date().toISOString();
+    await this.auditTrailService.log({
+      action: AuditAction.UPDATE,
+      entityName: 'User',
+      entityId: userId,
+      userId,
+      before: { passwordChangedAt: null },
+      after: { passwordChangedAt: changedAt },
+      ipAddress,
+    });
+
     return {
       message: 'Password berhasil diubah',
     };
   }
 
-  async updateUser(userId: number, updateUserDto: UpdateUserDto) {
+  async updateUser(
+    userId: number,
+    updateUserDto: UpdateUserDto,
+    actorUserId?: number,
+    ipAddress?: string,
+  ) {
     // Check if user exists
     const user = await this.authRepository.findUserById(userId);
 
@@ -311,6 +344,24 @@ export class AuthService {
       userId,
       updateData,
     );
+
+    await this.auditTrailService.log({
+      action: AuditAction.UPDATE,
+      entityName: 'User',
+      entityId: userId,
+      userId: actorUserId,
+      before: {
+        username: user.username,
+        email: user.email,
+        isActive: user.isActive,
+      },
+      after: {
+        username: updatedUser.username,
+        email: updatedUser.email,
+        isActive: updatedUser.isActive,
+      },
+      ipAddress,
+    });
 
     return {
       message: 'Data user berhasil diubah',
@@ -601,7 +652,7 @@ export class AuthService {
     };
   }
 
-  async deleteRole(id: number) {
+  async deleteRole(id: number, userId?: number, ipAddress?: string) {
     const role = await this.authRepository.findRoleById(id);
 
     if (!role) {
@@ -609,6 +660,19 @@ export class AuthService {
     }
 
     await this.authRepository.deleteRole(id);
+
+    await this.auditTrailService.log({
+      action: AuditAction.DELETE,
+      entityName: 'Role',
+      entityId: id,
+      userId,
+      before: {
+        name: role.name,
+        description: role.description ?? null,
+      },
+      after: null,
+      ipAddress,
+    });
 
     return {
       message: 'Role berhasil dihapus',
@@ -671,7 +735,7 @@ export class AuthService {
     };
   }
 
-  async deletePermission(id: number) {
+  async deletePermission(id: number, userId?: number, ipAddress?: string) {
     const permission = await this.authRepository.findPermissionById(id);
 
     if (!permission) {
@@ -679,6 +743,19 @@ export class AuthService {
     }
 
     await this.authRepository.deletePermission(id);
+
+    await this.auditTrailService.log({
+      action: AuditAction.DELETE,
+      entityName: 'Permission',
+      entityId: id,
+      userId,
+      before: {
+        code: permission.code,
+        description: permission.description ?? null,
+      },
+      after: null,
+      ipAddress,
+    });
 
     return {
       message: 'Permission berhasil dihapus',

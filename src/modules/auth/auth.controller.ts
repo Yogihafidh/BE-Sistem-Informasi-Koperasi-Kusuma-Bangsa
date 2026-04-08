@@ -63,8 +63,8 @@ export class AuthController {
   })
   @ApiBadRequestExample('Data tidak valid')
   @ApiConflictExample('Username atau email sudah terdaftar')
-  register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto);
+  register(@Body() registerDto: RegisterDto, @Req() request: Request) {
+    return this.authService.register(registerDto, request.ip);
   }
 
   // Login User
@@ -148,8 +148,13 @@ export class AuthController {
   changePassword(
     @CurrentUser() user: UserFromJwt,
     @Body() changePasswordDto: ChangePasswordDto,
+    @Req() request: Request,
   ) {
-    return this.authService.changePassword(user.userId, changePasswordDto);
+    return this.authService.changePassword(
+      user.userId,
+      changePasswordDto,
+      request.ip,
+    );
   }
 
   // Refresh Token JWT
