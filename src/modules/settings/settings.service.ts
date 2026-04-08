@@ -5,7 +5,9 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AuditAction } from '@prisma/client';
 import { CacheService } from '../../common/cache/cache.service';
+import { AuditTrailService } from '../audit/audit.service';
 import { UpsertSettingDto } from './dto';
 import { SettingsRepository } from './settings.repository';
 import {
@@ -31,6 +33,7 @@ export class SettingsService implements OnModuleInit {
     private readonly settingsRepository: SettingsRepository,
     private readonly cacheService: CacheService,
     private readonly configService: ConfigService,
+    private readonly auditTrailService: AuditTrailService,
   ) {
     const configured =
       this.configService.get<number>('app.cacheTtlSettingsSeconds') ?? 600;
@@ -141,7 +144,12 @@ export class SettingsService implements OnModuleInit {
     };
   }
 
-  async updateSetting(key: string, dto: UpsertSettingDto) {
+  async updateSetting(
+    key: string,
+    dto: UpsertSettingDto,
+    userId: number,
+    ipAddress?: string,
+  ) {
     const existing = await this.settingsRepository.findByKey(key);
     if (!existing) {
       throw new NotFoundException(`Setting ${key} tidak ditemukan`);
@@ -153,6 +161,28 @@ export class SettingsService implements OnModuleInit {
       key,
       value: dto.value,
       description: dto.description,
+    });
+
+    await this.auditTrailService.log({
+      action: AuditAction.UPDATE,
+      userId,
+      entityName: 'Setting',
+      entityId: existing.id,
+      ipAddress,
+      before: {
+        key: existing.key,
+        value: existing.value,
+        valueType: existing.valueType,
+        description: existing.description,
+        updatedAt: existing.updatedAt.toISOString(),
+      },
+      after: {
+        key: updated.key,
+        value: updated.value,
+        valueType: updated.valueType,
+        description: updated.description,
+        updatedAt: updated.updatedAt.toISOString(),
+      },
     });
 
     await this.cacheService.del(this.cacheKeyAll);

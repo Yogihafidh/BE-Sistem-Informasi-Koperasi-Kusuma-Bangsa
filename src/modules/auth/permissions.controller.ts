@@ -17,18 +17,16 @@ import {
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { CreatePermissionDto } from './dto';
-import { Permissions } from '../../common/decorators';
+import { CurrentUser, Permissions } from '../../common/decorators';
 import {
   ApiAuthErrors,
   ApiBadRequestExample,
   ApiConflictExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
-import {
-  JwtAuthGuard,
-  PermissionsGuard,
-} from '../../common/guards';
+import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import type { Request } from 'express';
+import type { UserFromJwt } from './interfaces/jwt-payload.interface';
 
 @ApiTags('permissions')
 @Controller('permissions')
@@ -116,8 +114,11 @@ export class PermissionsController {
   })
   @ApiAuthErrors()
   @ApiNotFoundExample('Permission tidak ditemukan')
-  deletePermission(@Param('id', ParseIntPipe) id: number) {
-    return this.authService.deletePermission(id);
+  deletePermission(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+    @Req() request: Request,
+  ) {
+    return this.authService.deletePermission(id, user.userId, request.ip);
   }
 }
-

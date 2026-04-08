@@ -3,6 +3,7 @@ import {
   Delete,
   Param,
   ParseIntPipe,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -18,6 +19,7 @@ import {
   ApiBadRequestExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import type { Request } from 'express';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 import { NasabahService } from './nasabah.service';
 
@@ -48,7 +50,8 @@ export class DokumenController {
   deleteDokumenNasabah(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: UserFromJwt,
+    @Req() request: Request,
   ) {
-    return this.nasabahService.deleteDokumenNasabah(id, user);
+    return this.nasabahService.deleteDokumenNasabah(id, user, request.ip);
   }
 }

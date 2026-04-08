@@ -1,15 +1,25 @@
-import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Put,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import type { Request } from 'express';
 import {
   ApiBearerAuth,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Permissions } from '../../common/decorators';
+import { CurrentUser, Permissions } from '../../common/decorators';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import { ApiAuthErrors } from '../../common/decorators/api-docs.decorator';
 import { UpsertSettingDto } from './dto';
 import { SettingsService } from './settings.service';
+import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
 @ApiTags('settings')
 @Controller('settings')
@@ -107,7 +117,17 @@ export class SettingsController {
     },
   })
   @ApiAuthErrors()
-  updateSetting(@Param('key') key: string, @Body() dto: UpsertSettingDto) {
-    return this.settingsService.updateSetting(key, dto);
+  updateSetting(
+    @Param('key') key: string,
+    @Body() dto: UpsertSettingDto,
+    @CurrentUser() user: UserFromJwt,
+    @Req() request: Request,
+  ) {
+    return this.settingsService.updateSetting(
+      key,
+      dto,
+      user.userId,
+      request.ip,
+    );
   }
 }
