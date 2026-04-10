@@ -2,9 +2,12 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 import { winstonLogger } from './common/logger/winston.logger';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { getClientIp } from './common/utils/request-ip.util';
+import { runWithRequestContext } from './common/utils/request-context.util';
 
 async function bootstrap() {
   // Set timezone to Asia/Jakarta
@@ -12,6 +15,11 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, {
     logger: winstonLogger,
+  });
+
+  app.use((request: Request, _response: Response, next: NextFunction) => {
+    const ipAddress = getClientIp(request);
+    runWithRequestContext({ ipAddress }, next);
   });
 
   // Ambil ConfigService untuk baca config
@@ -40,13 +48,11 @@ async function bootstrap() {
   const apiPrefix = configService.get<string>('app.apiPrefix') || 'api';
   app.setGlobalPrefix(apiPrefix);
 
-  const trustProxy = configService.get<boolean>('app.trustProxy');
-  if (trustProxy) {
-    const instance = app.getHttpAdapter().getInstance() as {
-      set?: (key: string, value: unknown) => void;
-    };
-    instance.set?.('trust proxy', true);
-  }
+  // Trust reverse proxy agar Express membaca IP client asli dari X-Forwarded-For.
+  const instance = app.getHttpAdapter().getInstance() as {
+    set?: (key: string, value: unknown) => void;
+  };
+  instance.set?.('trust proxy', true);
 
   // Setup Swagger/OpenAPI Documentation
   const config = new DocumentBuilder()

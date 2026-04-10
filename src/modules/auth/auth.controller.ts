@@ -30,6 +30,7 @@ import {
   ApiForbiddenExample,
   ApiUnauthorizedExample,
 } from '../../common/decorators/api-docs.decorator';
+import { getClientIp } from '../../common/utils/request-ip.util';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import type { UserFromJwt } from './interfaces/jwt-payload.interface';
 
@@ -64,7 +65,8 @@ export class AuthController {
   @ApiBadRequestExample('Data tidak valid')
   @ApiConflictExample('Username atau email sudah terdaftar')
   register(@Body() registerDto: RegisterDto, @Req() request: Request) {
-    return this.authService.register(registerDto, request.ip);
+    const clientIp = getClientIp(request);
+    return this.authService.register(registerDto, clientIp);
   }
 
   // Login User
@@ -95,7 +97,8 @@ export class AuthController {
   @ApiForbiddenExample('Akun tidak aktif')
   @HttpCode(200)
   login(@Body() loginDto: LoginDto, @Req() request: Request) {
-    return this.authService.login(loginDto, request.ip);
+    const clientIp = getClientIp(request);
+    return this.authService.login(loginDto, clientIp);
   }
 
   // Get Profile of Logged-in User
@@ -150,10 +153,11 @@ export class AuthController {
     @Body() changePasswordDto: ChangePasswordDto,
     @Req() request: Request,
   ) {
+    const clientIp = getClientIp(request);
     return this.authService.changePassword(
       user.userId,
       changePasswordDto,
-      request.ip,
+      clientIp,
     );
   }
 
@@ -211,6 +215,7 @@ export class AuthController {
   logout(@Req() request: Request) {
     const authHeader = request.headers.authorization || '';
     const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-    return this.authService.logout(token, request.ip);
+    const clientIp = getClientIp(request);
+    return this.authService.logout(token, clientIp);
   }
 }

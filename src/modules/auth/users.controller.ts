@@ -24,6 +24,7 @@ import {
   ApiBadRequestExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { getClientIp } from '../../common/utils/request-ip.util';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import type { Request } from 'express';
 import type { UserFromJwt } from './interfaces/jwt-payload.interface';
@@ -69,7 +70,7 @@ export class UsersController {
       userId,
       updateUserDto,
       user.userId,
-      request.ip,
+      getClientIp(request),
     );
   }
 
@@ -97,7 +98,11 @@ export class UsersController {
     @Body() assignRolesDto: AssignRolesDto,
     @Req() request: Request,
   ) {
-    return this.authService.assignRolesToUser(id, assignRolesDto, request.ip);
+    return this.authService.assignRolesToUser(
+      id,
+      assignRolesDto,
+      getClientIp(request),
+    );
   }
 
   @Delete(':userId/roles/:roleId')
@@ -122,7 +127,11 @@ export class UsersController {
     @Param('roleId', ParseIntPipe) roleId: number,
     @Req() request: Request,
   ) {
-    return this.authService.removeRoleFromUser(userId, roleId, request.ip);
+    return this.authService.removeRoleFromUser(
+      userId,
+      roleId,
+      getClientIp(request),
+    );
   }
 
   @Get(':id/roles')
