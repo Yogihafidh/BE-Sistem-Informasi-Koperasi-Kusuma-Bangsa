@@ -26,6 +26,7 @@ type SettingEntity = {
 
 @Injectable()
 export class SettingsService implements OnModuleInit {
+  // Settup data settings cache dengan key
   private readonly cacheKeyAll = 'settings:all';
   private readonly cacheTtlSeconds: number;
 
@@ -35,12 +36,14 @@ export class SettingsService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly auditTrailService: AuditTrailService,
   ) {
+    // Set cache hidup antara 5–10 menit
     const configured =
       this.configService.get<number>('app.cacheTtlSettingsSeconds') ?? 600;
     this.cacheTtlSeconds = Math.min(600, Math.max(300, Math.floor(configured)));
   }
 
   async onModuleInit() {
+    // Saat aplikasi start langsung isi cache
     await this.warmCache();
   }
 
@@ -72,6 +75,7 @@ export class SettingsService implements OnModuleInit {
     }
   }
 
+  // Ambil data settings dari database
   private async loadSettingsFromDb(): Promise<SettingEntity[]> {
     const settings = (await this.settingsRepository.listSettings()) as Array<
       Record<string, unknown>
@@ -89,6 +93,7 @@ export class SettingsService implements OnModuleInit {
     }));
   }
 
+  // Simpan hasil query database ke cache saat startup.
   private async warmCache() {
     try {
       const settings = await this.loadSettingsFromDb();
@@ -102,14 +107,18 @@ export class SettingsService implements OnModuleInit {
     }
   }
 
+  // Get setting cache (Logic caching setting)
   private async getSettingsCached() {
+    // Cek apakah data sudah ada di cache
     const cached = await this.cacheService.getJson<SettingEntity[]>(
       this.cacheKeyAll,
     );
+    // Jika data ditemukan di cache, maka langsung digunakan tanpa query database
     if (cached !== null) {
       return cached;
     }
 
+    // Jika tidak ditemukan, maka ambil dari database
     const settings = await this.loadSettingsFromDb();
     await this.cacheService.setJson(
       this.cacheKeyAll,
@@ -119,6 +128,7 @@ export class SettingsService implements OnModuleInit {
     return settings;
   }
 
+  // Get list settings (implementasi caching)
   async listSettings() {
     const data = (await this.getSettingsCached()).sort((a, b) =>
       a.key.localeCompare(b.key),
@@ -130,6 +140,7 @@ export class SettingsService implements OnModuleInit {
     };
   }
 
+  // Get detail setting (implementasi caching)
   async getSetting(key: string) {
     const setting = (await this.getSettingsCached()).find(
       (item) => item.key === key,
@@ -144,6 +155,7 @@ export class SettingsService implements OnModuleInit {
     };
   }
 
+  // Update setting logic (Invalidate caching)
   async updateSetting(
     key: string,
     dto: UpsertSettingDto,
@@ -185,6 +197,7 @@ export class SettingsService implements OnModuleInit {
       },
     });
 
+    // Hapus cache saat update agar data tetap konsisten
     await this.cacheService.del(this.cacheKeyAll);
     return {
       message: 'Setting berhasil diperbarui',
@@ -192,6 +205,7 @@ export class SettingsService implements OnModuleInit {
     };
   }
 
+  // Ekstra helper untuk setting number agar lebih mudah digunakan di service lain
   async getNumber(key: string) {
     const setting = await this.getSettingEntity(key);
     if (setting.valueType !== SETTING_VALUE_TYPE.NUMBER) {
@@ -206,6 +220,7 @@ export class SettingsService implements OnModuleInit {
     return parsed;
   }
 
+  // Ekstra helper untuk setting boolean agar lebih mudah digunakan di service lain
   async getBoolean(key: string) {
     const setting = await this.getSettingEntity(key);
     if (setting.valueType !== SETTING_VALUE_TYPE.BOOLEAN) {
@@ -223,7 +238,9 @@ export class SettingsService implements OnModuleInit {
     throw new BadRequestException(`Value setting ${key} bukan boolean valid`);
   }
 
+  // Ekstra helper untuk setting JSON agar lebih mudah digunakan di service lain
   private async getSettingEntity(key: string) {
+    // Lookup setting selalu lewat cache layer agar konsisten.
     const setting = (await this.getSettingsCached()).find(
       (item) => item.key === key,
     );

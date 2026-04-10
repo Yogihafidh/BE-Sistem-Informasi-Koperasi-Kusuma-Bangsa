@@ -483,10 +483,13 @@ export class AuthService {
       );
     }
 
+    // sisa waktu hidup token
     const ttlSeconds = Math.max(
       1,
       Math.floor((expiresAtMs - Date.now()) / 1000),
     );
+
+    // Simpan token jwt ke cache redis saat logout sebagai blacklist sampai token expired.
     await this.cacheService.setString(
       this.getBlacklistKey(accessToken),
       '1',
@@ -510,6 +513,7 @@ export class AuthService {
 
   async isTokenBlacklisted(accessToken: string) {
     try {
+      // Cek token di cache kalau ada nilai berarti token sudah tidak boleh dipakai
       const cached = await this.cacheService.getString(
         this.getBlacklistKey(accessToken),
       );
