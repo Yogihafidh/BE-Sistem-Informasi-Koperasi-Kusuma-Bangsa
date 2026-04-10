@@ -19,6 +19,7 @@ import {
   ApiBadRequestExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { getClientIp } from '../../common/utils/request-ip.util';
 import type { Request } from 'express';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 import { NasabahService } from './nasabah.service';
@@ -52,6 +53,10 @@ export class DokumenController {
     @CurrentUser() user: UserFromJwt,
     @Req() request: Request,
   ) {
-    return this.nasabahService.deleteDokumenNasabah(id, user, request.ip);
+    return this.nasabahService.deleteDokumenNasabah(
+      id,
+      user,
+      getClientIp(request),
+    );
   }
 }

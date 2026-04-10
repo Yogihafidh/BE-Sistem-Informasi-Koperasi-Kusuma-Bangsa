@@ -31,6 +31,7 @@ import {
   ApiConflictExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { getClientIp } from '../../common/utils/request-ip.util';
 import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import type { Request } from 'express';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
@@ -80,7 +81,11 @@ export class PegawaiController {
     @CurrentUser() user: UserFromJwt,
     @Req() request: Request,
   ) {
-    return this.pegawaiService.createPegawai(dto, user.userId, request.ip);
+    return this.pegawaiService.createPegawai(
+      dto,
+      user.userId,
+      getClientIp(request),
+    );
   }
 
   @Get()
@@ -213,7 +218,12 @@ export class PegawaiController {
     @CurrentUser() user: UserFromJwt,
     @Req() request: Request,
   ) {
-    return this.pegawaiService.updatePegawai(id, dto, user.userId, request.ip);
+    return this.pegawaiService.updatePegawai(
+      id,
+      dto,
+      user.userId,
+      getClientIp(request),
+    );
   }
 
   @Patch(':id/status')
@@ -259,7 +269,7 @@ export class PegawaiController {
       id,
       dto,
       user.userId,
-      request.ip,
+      getClientIp(request),
     );
   }
 }

@@ -44,6 +44,7 @@ import {
   ApiConflictExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { getClientIp } from '../../common/utils/request-ip.util';
 import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import type { Request } from 'express';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
@@ -86,7 +87,11 @@ export class NasabahController {
     @CurrentUser() user: UserFromJwt,
     @Req() request: Request,
   ) {
-    return this.nasabahService.createNasabah(dto, user.userId, request.ip);
+    return this.nasabahService.createNasabah(
+      dto,
+      user.userId,
+      getClientIp(request),
+    );
   }
 
   @Get()
@@ -262,7 +267,12 @@ export class NasabahController {
     @CurrentUser() user: UserFromJwt,
     @Req() request: Request,
   ) {
-    return this.nasabahService.updateNasabah(id, dto, user.userId, request.ip);
+    return this.nasabahService.updateNasabah(
+      id,
+      dto,
+      user.userId,
+      getClientIp(request),
+    );
   }
 
   @Post(':id/dokumen')
@@ -413,7 +423,7 @@ export class NasabahController {
       jenisDokumen,
       file,
       user,
-      request.ip,
+      getClientIp(request),
     );
   }
 
@@ -458,7 +468,7 @@ export class NasabahController {
       id,
       dto,
       user.userId,
-      request.ip,
+      getClientIp(request),
     );
   }
 
@@ -502,7 +512,7 @@ export class NasabahController {
       id,
       dto,
       user.userId,
-      request.ip,
+      getClientIp(request),
     );
   }
 }

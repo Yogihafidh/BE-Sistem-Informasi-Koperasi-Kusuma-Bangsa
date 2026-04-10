@@ -17,6 +17,7 @@ import {
 import { CurrentUser, Permissions } from '../../common/decorators';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import { ApiAuthErrors } from '../../common/decorators/api-docs.decorator';
+import { getClientIp } from '../../common/utils/request-ip.util';
 import { UpsertSettingDto } from './dto';
 import { SettingsService } from './settings.service';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
@@ -123,11 +124,9 @@ export class SettingsController {
     @CurrentUser() user: UserFromJwt,
     @Req() request: Request,
   ) {
-    return this.settingsService.updateSetting(
-      key,
-      dto,
-      user.userId,
-      request.ip,
-    );
+    // ALUR IP 5
+    // request.ip diteruskan agar update setting tercatat dengan asal IP di audit trail.
+    const clientIp = getClientIp(request);
+    return this.settingsService.updateSetting(key, dto, user.userId, clientIp);
   }
 }

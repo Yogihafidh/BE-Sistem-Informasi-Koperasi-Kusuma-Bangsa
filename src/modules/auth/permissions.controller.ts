@@ -24,6 +24,7 @@ import {
   ApiConflictExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { getClientIp } from '../../common/utils/request-ip.util';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import type { Request } from 'express';
 import type { UserFromJwt } from './interfaces/jwt-payload.interface';
@@ -62,7 +63,10 @@ export class PermissionsController {
     @Body() createPermissionDto: CreatePermissionDto,
     @Req() request: Request,
   ) {
-    return this.authService.createPermission(createPermissionDto, request.ip);
+    return this.authService.createPermission(
+      createPermissionDto,
+      getClientIp(request),
+    );
   }
 
   @Get()
@@ -119,6 +123,10 @@ export class PermissionsController {
     @CurrentUser() user: UserFromJwt,
     @Req() request: Request,
   ) {
-    return this.authService.deletePermission(id, user.userId, request.ip);
+    return this.authService.deletePermission(
+      id,
+      user.userId,
+      getClientIp(request),
+    );
   }
 }

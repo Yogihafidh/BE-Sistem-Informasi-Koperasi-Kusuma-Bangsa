@@ -34,6 +34,7 @@ import {
   ApiBadRequestExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { getClientIp } from '../../common/utils/request-ip.util';
 import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
 import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 import type { Request } from 'express';
@@ -255,7 +256,11 @@ export class PinjamanController {
     @CurrentUser() user: UserFromJwt,
     @Req() request: Request,
   ) {
-    return this.pinjamanService.createPinjaman(dto, user.userId, request.ip);
+    return this.pinjamanService.createPinjaman(
+      dto,
+      user.userId,
+      getClientIp(request),
+    );
   }
 
   @Get('nasabah/:nasabahId')
@@ -348,7 +353,7 @@ export class PinjamanController {
       id,
       dto,
       user.userId,
-      request.ip,
+      getClientIp(request),
     );
   }
 

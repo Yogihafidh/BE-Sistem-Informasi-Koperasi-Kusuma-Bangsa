@@ -7,6 +7,7 @@ import { AuditAction, Prisma } from '@prisma/client';
 import { AuditRepository } from './audit.repository';
 import { buildDiff, maskSensitiveFields } from './audit.utils';
 import { DEFAULT_PAGE_SIZE } from '../../common/constants/pagination.constants';
+import { getRequestContext } from '../../common/utils/request-context.util';
 
 type LogPayload = {
   userId?: number | null;
@@ -104,14 +105,22 @@ export class AuditTrailService {
   }
 
   async log(payload: LogPayload, tx?: Prisma.TransactionClient) {
+    // ALUR AUDIT 1
+    // Hitung perubahan data (before/after) yang benar-benar berubah.
     const { oldValue, newValue } = buildDiff(payload.before, payload.after);
 
+    // ALUR AUDIT 2
+    // Samarkan field sensitif sebelum disimpan ke audit trail.
     const maskedOldValue = maskSensitiveFields(oldValue);
     const maskedNewValue = maskSensitiveFields(newValue);
 
     const hasOldValue = payload.before && Object.keys(oldValue).length;
     const hasNewValue = payload.after && Object.keys(newValue).length;
+    const contextualIp = getRequestContext()?.ipAddress;
+    const effectiveIp = (payload.ipAddress ?? contextualIp ?? 'unknown').trim();
 
+    // ALUR AUDIT 3
+    // Susun payload insert audit trail dari data konteks aksi.
     const data: Prisma.AuditTrailCreateInput = {
       action: payload.action,
       ...(payload.userId ? { user: { connect: { id: payload.userId } } } : {}),
@@ -121,9 +130,9 @@ export class AuditTrailService {
       ...(payload.entityId !== undefined && payload.entityId !== null
         ? { entityId: payload.entityId }
         : {}),
-      ...(payload.ipAddress !== undefined && payload.ipAddress !== null
-        ? { ipAddress: payload.ipAddress }
-        : {}),
+      // ALUR IP 1
+      // Pakai ipAddress dari payload, fallback ke request context, lalu default "unknown".
+      ipAddress: effectiveIp,
       ...(hasOldValue
         ? { oldValue: maskedOldValue as Prisma.InputJsonValue }
         : {}),
@@ -132,6 +141,8 @@ export class AuditTrailService {
         : {}),
     };
 
+    // ALUR AUDIT 4
+    // Insert data audit trail ke database melalui repository.
     return this.auditRepository.createAuditTrail(data, tx);
   }
 }

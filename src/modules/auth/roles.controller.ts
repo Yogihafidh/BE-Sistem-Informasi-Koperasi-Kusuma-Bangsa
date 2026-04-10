@@ -25,6 +25,7 @@ import {
   ApiConflictExample,
   ApiNotFoundExample,
 } from '../../common/decorators/api-docs.decorator';
+import { getClientIp } from '../../common/utils/request-ip.util';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import type { Request } from 'express';
 import type { UserFromJwt } from './interfaces/jwt-payload.interface';
@@ -60,7 +61,7 @@ export class RolesController {
   @ApiAuthErrors()
   @ApiConflictExample('Role sudah ada')
   createRole(@Body() createRoleDto: CreateRoleDto, @Req() request: Request) {
-    return this.authService.createRole(createRoleDto, request.ip);
+    return this.authService.createRole(createRoleDto, getClientIp(request));
   }
 
   @Get()
@@ -164,7 +165,7 @@ export class RolesController {
     @Body() updateRoleDto: UpdateRoleDto,
     @Req() request: Request,
   ) {
-    return this.authService.updateRole(id, updateRoleDto, request.ip);
+    return this.authService.updateRole(id, updateRoleDto, getClientIp(request));
   }
 
   @Delete(':id')
@@ -189,7 +190,7 @@ export class RolesController {
     @CurrentUser() user: UserFromJwt,
     @Req() request: Request,
   ) {
-    return this.authService.deleteRole(id, user.userId, request.ip);
+    return this.authService.deleteRole(id, user.userId, getClientIp(request));
   }
 
   // ==================== ROLE-PERMISSION ASSIGNMENT ENDPOINTS ====================
@@ -219,7 +220,7 @@ export class RolesController {
     return this.authService.assignPermissionsToRole(
       id,
       assignPermissionsDto,
-      request.ip,
+      getClientIp(request),
     );
   }
 
@@ -248,7 +249,7 @@ export class RolesController {
     return this.authService.removePermissionFromRole(
       roleId,
       permissionId,
-      request.ip,
+      getClientIp(request),
     );
   }
 }
