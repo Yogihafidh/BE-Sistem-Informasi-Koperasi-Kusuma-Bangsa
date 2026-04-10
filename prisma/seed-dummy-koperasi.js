@@ -10,14 +10,17 @@ const {
 const prisma = new PrismaClient();
 const DUMMY_MARKER = 'SEED_DUMMY_BANYUMAS_2026';
 
+// ALUR 1: Helper pembuat tanggal UTC agar data seed konsisten lintas timezone.
 function dt(yyyy, mm, dd, hh = 9, mi = 0, ss = 0) {
   return new Date(Date.UTC(yyyy, mm - 1, dd, hh, mi, ss));
 }
 
+// ALUR 2: Helper kunci bulan untuk agregasi total transaksi per periode.
 function monthKey(date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+// ALUR 3: Buat/update user dummy lalu pasangkan role agar data pegawai punya akun valid.
 async function ensureUserWithRole({ username, email, roleName }) {
   const role = await prisma.role.findUnique({ where: { name: roleName } });
 
@@ -49,9 +52,11 @@ async function ensureUserWithRole({ username, email, roleName }) {
   return user;
 }
 
+// ALUR 4: Orkestrasi utama seed dummy koperasi dari master data sampai ringkasan akhir.
 async function seedDummyKoperasiBanyumas() {
   console.log('🌱 Seed dummy koperasi Banyumas dimulai...');
 
+  // ALUR 5: Definisi master data pegawai dummy.
   const pegawaiSpecs = [
     {
       key: 'PGW-001',
@@ -121,6 +126,7 @@ async function seedDummyKoperasiBanyumas() {
     },
   ];
 
+  // ALUR 6: Definisi master data nasabah dummy beserta atribut profilnya.
   const nasabahSpecs = [
     {
       code: 'NB-001',
@@ -264,6 +270,7 @@ async function seedDummyKoperasiBanyumas() {
     },
   ];
 
+  // ALUR 7: Definisi saldo awal rekening simpanan per nasabah.
   const rekeningAwal = {
     'NB-001': { POKOK: 500000, WAJIB: 200000, SUKARELA: 900000 },
     'NB-002': { POKOK: 500000, WAJIB: 250000, SUKARELA: 750000 },
@@ -277,6 +284,7 @@ async function seedDummyKoperasiBanyumas() {
     'NB-010': { POKOK: 500000, WAJIB: 150000, SUKARELA: 550000 },
   };
 
+  // ALUR 8: Definisi pinjaman awal yang akan dipakai untuk simulasi cicilan.
   const pinjamanSpecs = [
     {
       code: 'PJM-001',
@@ -312,6 +320,7 @@ async function seedDummyKoperasiBanyumas() {
     },
   ];
 
+  // ALUR 9: Definisi rencana transaksi kronologis lintas bulan.
   const txPlan = [
     // Januari (25 transaksi)
     {
@@ -802,6 +811,7 @@ async function seedDummyKoperasiBanyumas() {
     },
   ];
 
+  // ALUR 10: Cleanup data dummy lama supaya seed idempotent saat dijalankan ulang.
   // Hapus data dummy nasabah lama agar idempotent.
   const existingDummyNasabah = await prisma.nasabah.findMany({
     where: {
@@ -843,6 +853,7 @@ async function seedDummyKoperasiBanyumas() {
     },
   });
 
+  // ALUR 11: Bangun mapping pegawai dummy (key -> record pegawai) setelah user+role siap.
   const pegawaiByKey = {};
   for (const spec of pegawaiSpecs) {
     const user = await ensureUserWithRole({
@@ -873,6 +884,7 @@ async function seedDummyKoperasiBanyumas() {
     pegawaiByKey[spec.key] = pegawai;
   }
 
+  // ALUR 12: Buat nasabah dummy dan simpan mapping code -> nasabah.
   const nasabahByCode = {};
   for (const spec of nasabahSpecs) {
     const nasabah = await prisma.nasabah.create({
@@ -895,6 +907,7 @@ async function seedDummyKoperasiBanyumas() {
     nasabahByCode[spec.code] = nasabah;
   }
 
+  // ALUR 13: Buat 3 rekening simpanan awal (POKOK/WAJIB/SUKARELA) untuk tiap nasabah.
   const rekeningByNasabahAndJenis = {};
   for (const spec of nasabahSpecs) {
     const nasabah = nasabahByCode[spec.code];
@@ -920,6 +933,7 @@ async function seedDummyKoperasiBanyumas() {
     }
   }
 
+  // ALUR 14: Buat pinjaman awal dan simpan mapping code -> pinjaman.
   const pinjamanByCode = {};
   for (const spec of pinjamanSpecs) {
     const nasabah = nasabahByCode[spec.nasabahCode];
@@ -940,6 +954,7 @@ async function seedDummyKoperasiBanyumas() {
     pinjamanByCode[spec.code] = pinjaman;
   }
 
+  // ALUR 15: Siapkan variabel kontrol petugas kasir bergantian dan agregasi total bulanan.
   const kasirKeys = ['PGW-004', 'PGW-005'];
   let kasirTurn = 0;
 
@@ -950,10 +965,12 @@ async function seedDummyKoperasiBanyumas() {
     '2026-04': { simpanan: 0, penarikan: 0, pencairan: 0, angsuran: 0 },
   };
 
+  // ALUR 16: Eksekusi txPlan satu per satu, sekaligus update saldo rekening/pinjaman dan total bulanan.
   for (const tx of txPlan) {
     const nasabah = nasabahByCode[tx.nasabah];
     const key = monthKey(tx.d);
 
+    // ALUR 16A: Tentukan petugas pencatat transaksi (pencairan oleh verifikator, selain itu kasir bergiliran).
     let pegawaiId;
     if (tx.t === JenisTransaksi.PENCAIRAN) {
       pegawaiId = pegawaiByKey['PGW-003'].id;
@@ -962,6 +979,7 @@ async function seedDummyKoperasiBanyumas() {
       kasirTurn += 1;
     }
 
+    // ALUR 16B: Proses transaksi simpanan (setoran/penarikan) dan mutasi saldo rekening.
     if (tx.t === JenisTransaksi.SETORAN || tx.t === JenisTransaksi.PENARIKAN) {
       const rekening = rekeningByNasabahAndJenis[tx.nasabah][tx.rekening];
       const beforeSaldo = Number(rekening.saldoBerjalan);
@@ -1003,6 +1021,7 @@ async function seedDummyKoperasiBanyumas() {
       }
     }
 
+    // ALUR 16C: Proses transaksi pinjaman (pencairan/angsuran) dan mutasi sisa pinjaman.
     if (tx.t === JenisTransaksi.PENCAIRAN || tx.t === JenisTransaksi.ANGSURAN) {
       const pinjaman = pinjamanByCode[tx.pinjaman];
 
@@ -1065,6 +1084,7 @@ async function seedDummyKoperasiBanyumas() {
     }
   }
 
+  // ALUR 17: Tambahkan edge case soft-delete rekening untuk kebutuhan uji filtering data aktif.
   await prisma.rekeningSimpanan.update({
     where: {
       id: rekeningByNasabahAndJenis['NB-010'][JenisSimpanan.SUKARELA].id,
@@ -1074,6 +1094,7 @@ async function seedDummyKoperasiBanyumas() {
     },
   });
 
+  // ALUR 18: Ambil user pembuat laporan snapshot.
   const generatedBy = await prisma.user.findUnique({
     where: { username: 'dummy2026.pimpinan' },
   });
@@ -1084,6 +1105,7 @@ async function seedDummyKoperasiBanyumas() {
     );
   }
 
+  // ALUR 19: Hitung saldo akhir snapshot berdasarkan total kas bulanan.
   const january = totals['2026-01'];
   const february = totals['2026-02'];
 
@@ -1096,6 +1118,7 @@ async function seedDummyKoperasiBanyumas() {
     february.penarikan -
     february.pencairan;
 
+  // ALUR 20: Simpan snapshot laporan Januari (FINAL) dan Februari (DRAFT).
   await prisma.laporanKeuangan.create({
     data: {
       periodeBulan: 1,
@@ -1126,6 +1149,7 @@ async function seedDummyKoperasiBanyumas() {
     },
   });
 
+  // ALUR 21: Hitung ringkasan jumlah data hasil seed untuk verifikasi cepat.
   const summary = {
     pegawai: await prisma.pegawai.count({
       where: {
@@ -1150,6 +1174,7 @@ async function seedDummyKoperasiBanyumas() {
     }),
   };
 
+  // ALUR 22: Tampilkan ringkasan akhir seed ke console.
   console.log('✅ Seed dummy koperasi Banyumas selesai.');
   console.log(`- Pegawai dummy: ${summary.pegawai} (target: 6)`);
   console.log(`- Nasabah dummy: ${summary.nasabah} (target: 10)`);

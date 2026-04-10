@@ -11,10 +11,12 @@ const DUMMY_PREFIX = 'DMY2026-';
 const DUMMY_MARKER = 'SEED_DUMMY_BANYUMAS_2026';
 const YEAR = 2026;
 
+// ALUR 1: Helper pembentuk tanggal UTC untuk filter periode yang konsisten.
 function dt(yyyy, mm, dd, hh = 0, mi = 0, ss = 0) {
   return new Date(Date.UTC(yyyy, mm - 1, dd, hh, mi, ss));
 }
 
+// ALUR 2: Helper rentang bulan [start, end) untuk query transaksi bulanan.
 function monthWindow(month) {
   return {
     start: dt(YEAR, month, 1, 0, 0, 0),
@@ -25,14 +27,17 @@ function monthWindow(month) {
   };
 }
 
+// ALUR 3: Normalisasi nilai agregasi Prisma agar aman dipakai pada operasi numerik.
 function toNumber(value) {
   return value == null ? 0 : Number(value);
 }
 
+// ALUR 4: Formatter angka untuk output ringkasan validasi di console.
 function prettyCurrency(num) {
   return new Intl.NumberFormat('id-ID').format(num);
 }
 
+// ALUR 5: Agregasi transaksi per jenis dalam rentang waktu tertentu.
 async function sumTransaksiByJenis(args) {
   const grouped = await prisma.transaksi.groupBy({
     by: ['jenisTransaksi'],
@@ -68,9 +73,11 @@ async function sumTransaksiByJenis(args) {
   return summary;
 }
 
+// ALUR 6: Orkestrasi seluruh rangkaian validasi data dummy koperasi.
 async function main() {
   const findings = [];
 
+  // ALUR 6A: Helper assertion agar hasil validasi tercatat rapi (pass/fail + detail).
   const check = (ok, message, detail = null) => {
     if (ok) {
       console.log(`✅ ${message}`);
@@ -85,6 +92,7 @@ async function main() {
 
   console.log('🔎 Validasi dummy koperasi dimulai...');
 
+  // ALUR 7: Ambil data nasabah dummy sebagai basis seluruh pengecekan berikutnya.
   const dummyNasabah = await prisma.nasabah.findMany({
     where: {
       OR: [
@@ -103,6 +111,7 @@ async function main() {
 
   const dummyNasabahIds = dummyNasabah.map((n) => n.id);
 
+  // ALUR 8: Validasi struktur rekening (setiap nasabah dummy harus punya 3 rekening).
   const rekeningCount = await prisma.rekeningSimpanan.count({
     where: {
       nasabahId: { in: dummyNasabahIds },
@@ -114,6 +123,7 @@ async function main() {
     `rekening: ${rekeningCount}, nasabah: ${dummyNasabah.length}`,
   );
 
+  // ALUR 9: Validasi integritas relasi transaksi simpanan (SETORAN/PENARIKAN).
   const invalidSavingsTx = await prisma.transaksi.count({
     where: {
       deletedAt: null,
@@ -130,6 +140,7 @@ async function main() {
     `invalid rows: ${invalidSavingsTx}`,
   );
 
+  // ALUR 10: Validasi integritas relasi transaksi pinjaman (PENCAIRAN/ANGSURAN).
   const invalidLoanTx = await prisma.transaksi.count({
     where: {
       deletedAt: null,
@@ -146,9 +157,11 @@ async function main() {
     `invalid rows: ${invalidLoanTx}`,
   );
 
+  // ALUR 11: Hitung agregat transaksi Januari dan Februari untuk pembanding snapshot laporan.
   const january = await sumTransaksiByJenis(monthWindow(1));
   const february = await sumTransaksiByJenis(monthWindow(2));
 
+  // ALUR 12: Ambil snapshot laporan keuangan terbaru pada bulan yang divalidasi.
   const januarySnapshot = await prisma.laporanKeuangan.findFirst({
     where: { periodeTahun: YEAR, periodeBulan: 1 },
     orderBy: { generatedAt: 'desc' },
@@ -161,6 +174,7 @@ async function main() {
   check(!!januarySnapshot, 'Snapshot laporan Januari 2026 tersedia');
   check(!!februarySnapshot, 'Snapshot laporan Februari 2026 tersedia');
 
+  // ALUR 13: Cocokkan komponen snapshot Januari terhadap agregat transaksi Januari.
   if (januarySnapshot) {
     check(
       toNumber(januarySnapshot.totalSimpanan) ===
@@ -188,6 +202,7 @@ async function main() {
     );
   }
 
+  // ALUR 14: Cocokkan komponen snapshot Februari terhadap agregat transaksi Februari.
   if (februarySnapshot) {
     check(
       toNumber(februarySnapshot.totalSimpanan) ===
@@ -215,6 +230,7 @@ async function main() {
     );
   }
 
+  // ALUR 15: Validasi rumus saldo akhir bulanan dan carry-over antar bulan.
   if (januarySnapshot && februarySnapshot) {
     const saldoAwalJanuari = 0;
     const expectedSaldoAkhirJanuari =
@@ -244,6 +260,7 @@ async function main() {
     );
   }
 
+  // ALUR 16: Ambil data pinjaman aktif untuk validasi sisa pinjaman dan status.
   const loans = await prisma.pinjaman.findMany({
     where: {
       nasabah: {
@@ -266,6 +283,7 @@ async function main() {
   let invalidLoanStatus = 0;
   let expectedOutstanding = 0;
 
+  // ALUR 17: Hitung ulang expected sisa pinjaman dari total angsuran aktual per pinjaman.
   for (const loan of loans) {
     const angsuranAgg = await prisma.transaksi.aggregate({
       where: {
@@ -295,6 +313,7 @@ async function main() {
     }
   }
 
+  // ALUR 18: Assert konsistensi saldo pinjaman dan status pinjaman.
   check(
     invalidLoanBalance === 0,
     'Sisa pinjaman konsisten terhadap jumlahPinjaman - totalAngsuran',
@@ -307,6 +326,7 @@ async function main() {
     `status tidak konsisten: ${invalidLoanStatus}`,
   );
 
+  // ALUR 19: Hitung nilai dashboard (saldo simpanan dan outstanding pinjaman) dari data aktual.
   const dashboardSaldoSimpanan = await prisma.rekeningSimpanan.aggregate({
     where: {
       deletedAt: null,
@@ -338,12 +358,14 @@ async function main() {
     dashboardOutstanding._sum.sisaPinjaman,
   );
 
+  // ALUR 20: Validasi konsistensi angka outstanding dashboard terhadap hasil hitung pinjaman.
   check(
     dashboardOutstandingNum === expectedOutstanding,
     'Saldo dashboard total pinjaman aktif konsisten dengan perhitungan transaksi pinjaman',
     `dashboard=${dashboardOutstandingNum}, expected=${expectedOutstanding}`,
   );
 
+  // ALUR 21: Validasi ketersediaan edge case nasabah NONAKTIF.
   const nonaktifCount = dummyNasabah.filter(
     (n) => n.status === NasabahStatus.NONAKTIF,
   ).length;
@@ -353,6 +375,7 @@ async function main() {
     `jumlah nonaktif=${nonaktifCount}`,
   );
 
+  // ALUR 22: Validasi ketersediaan edge case rekening soft-delete.
   const softDeletedRekening = await prisma.rekeningSimpanan.count({
     where: {
       nasabah: {
@@ -370,6 +393,7 @@ async function main() {
     `jumlah soft-delete=${softDeletedRekening}`,
   );
 
+  // ALUR 23: Cetak ringkasan angka kunci hasil validasi.
   console.log('');
   console.log('📊 Ringkasan angka kunci:');
   console.log(
@@ -385,6 +409,7 @@ async function main() {
     `- Februari 2026 (Simpan/Tarik/Pencairan/Angsuran): ${prettyCurrency(february[JenisTransaksi.SETORAN])}/${prettyCurrency(february[JenisTransaksi.PENARIKAN])}/${prettyCurrency(february[JenisTransaksi.PENCAIRAN])}/${prettyCurrency(february[JenisTransaksi.ANGSURAN])}`,
   );
 
+  // ALUR 24: Jika ada temuan, tandai proses validasi gagal dengan exit code non-zero.
   if (findings.length > 0) {
     console.log('');
     console.log(`❌ Validasi selesai dengan ${findings.length} temuan.`);
@@ -398,6 +423,7 @@ async function main() {
   );
 }
 
+// ALUR 25: Jalankan validator dan pastikan koneksi database selalu ditutup.
 main()
   .catch((error) => {
     console.error('❌ Validator gagal dijalankan:', error);

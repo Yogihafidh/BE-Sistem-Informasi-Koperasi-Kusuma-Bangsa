@@ -7,8 +7,9 @@ async function seed() {
   console.log('🌱 Starting auth seed...');
 
   try {
-    // Create Permissions
+    // ALUR 1 BUAT DATA PERMISSION
     console.log('1. Creating permissions...');
+    // Daftar permission
     const permissions = [
       { code: 'user.create', description: 'Create user' },
       { code: 'user.read', description: 'Read user' },
@@ -58,6 +59,7 @@ async function seed() {
       { code: 'settings.update', description: 'Update settings' },
     ];
 
+    // Upsert Data permission (kalau sudah ada jangan diapa apain kalau belum insert)
     for (const permission of permissions) {
       await prisma.permission.upsert({
         where: { code: permission.code },
@@ -66,38 +68,9 @@ async function seed() {
       });
     }
 
-    // Cleanup legacy permission that is no longer used.
-    await prisma.rolePermission.deleteMany({
-      where: {
-        permission: {
-          code: 'nasabah.delete',
-        },
-      },
-    });
-
-    await prisma.permission.deleteMany({
-      where: {
-        code: 'nasabah.delete',
-      },
-    });
-
-    await prisma.rolePermission.deleteMany({
-      where: {
-        permission: {
-          code: 'transaksi.create',
-        },
-      },
-    });
-
-    await prisma.permission.deleteMany({
-      where: {
-        code: 'transaksi.create',
-      },
-    });
-
     console.log(`Created ${permissions.length} permissions`);
 
-    // Default Settings
+    // ALUR 2 BUAT DATA DEFAULT SETTINGS
     const defaultSettings = [
       {
         key: 'loan.maxTenorMonths',
@@ -175,7 +148,7 @@ async function seed() {
 
     console.log(`Created ${defaultSettings.length} default settings`);
 
-    // Create Roles
+    // ALUR 3 BUAT DATA ROLE
     console.log('2. Creating roles...');
     const adminRole = await prisma.role.upsert({
       where: { name: 'Admin' },
@@ -227,9 +200,9 @@ async function seed() {
     // Load all permissions once
     const allPermissions = await prisma.permission.findMany();
 
-    // Assign all permissions to Super Admin
+    // ALUR 4 MAPPING PERMISSION TO ROLES
+    // 4.1 Super Admin dapat semua permission
     console.log('3.1 Assigning permissions to Super Admin role...');
-
     await prisma.rolePermission.deleteMany({
       where: { roleId: superAdminRole.id },
     });
@@ -240,10 +213,9 @@ async function seed() {
         permissionId: p.id,
       })),
     });
-
     console.log(`Assigned ${allPermissions.length} permissions to Super Admin`);
 
-    // Assign specific permissions to Admin (sesuai matriks UC)
+    // 4.2 Admin
     console.log('3.2 Assigning permissions to Admin role...');
     const adminPermissionCodes = [
       'role.create',
@@ -283,7 +255,7 @@ async function seed() {
 
     console.log(`Assigned ${adminPermissions.length} permissions to Admin`);
 
-    // Assign specific permissions to Kasir
+    // 4.3 Kasir
     console.log('3.3 Assigning permissions to Kasir role...');
     const kasirPermissionCodes = [
       'simpanan.setor',
@@ -310,7 +282,7 @@ async function seed() {
 
     console.log(`Assigned ${kasirPermissions.length} permissions to Kasir`);
 
-    // Assign specific permissions to Staff
+    // 4.4 Staff
     console.log('3.4 Assigning permissions to Staff role...');
     const staffPermissionCodes = [
       'nasabah.create',
@@ -338,7 +310,7 @@ async function seed() {
 
     console.log(`Assigned ${staffPermissions.length} permissions to Staff`);
 
-    // Assign specific permissions to Pimpinan
+    // 4.5 Pimpinan
     console.log('3.5 Assigning permissions to Pimpinan role...');
     const pimpinanPermissionCodes = [
       'nasabah.verify',
@@ -368,7 +340,7 @@ async function seed() {
       `Assigned ${pimpinanPermissions.length} permissions to Pimpinan`,
     );
 
-    // Create default users for each role
+    // ALUR 5 CREATE DEFAULT USERS
     console.log('4. Creating default users for all roles...');
 
     const defaultUsers = [
@@ -420,8 +392,10 @@ async function seed() {
     ];
 
     for (const item of defaultUsers) {
+      // ALUR 6 HASH ALL PASSWORD USERS 
       const hashedPassword = await bcrypt.hash(item.password, 10);
 
+      // ALUR 5 CREATE DEFAULT USERS
       const user = await prisma.user.upsert({
         where: { username: item.username },
         update: {
@@ -437,6 +411,7 @@ async function seed() {
         },
       });
 
+      // ALUR 7 ASSIGN ROLE TO USER
       await prisma.userRole.deleteMany({
         where: { userId: user.id },
       });
@@ -448,6 +423,7 @@ async function seed() {
         },
       });
 
+      // ALUR 8 CREATE PEGAWAI PROFILE UNTUK USER YANG DIBUAT
       await prisma.pegawai.upsert({
         where: { userId: user.id },
         update: {
