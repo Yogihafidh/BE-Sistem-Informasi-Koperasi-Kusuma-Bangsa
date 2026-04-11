@@ -208,6 +208,7 @@ export class AuthService {
         id: user.id,
         username: user.username,
         email: user.email,
+        pegawaiId: user.pegawai?.id ?? null,
         roles,
         permissions: uniquePermissions,
       },
@@ -224,10 +225,6 @@ export class AuthService {
     }
 
     const roles = user.roles.map((ur) => ur.role.name);
-    const permissions = user.roles.flatMap((ur) =>
-      ur.role.permissions.map((rp) => rp.permission.code),
-    );
-    const uniquePermissions = [...new Set(permissions)];
 
     return {
       id: user.id,
@@ -235,9 +232,12 @@ export class AuthService {
       email: user.email,
       isActive: user.isActive,
       lastLoginAt: user.lastLoginAt,
-      createdAt: user.createdAt,
+      pegawaiId: user.pegawai?.id ?? null,
+      nama: user.pegawai?.nama ?? null,
+      jabatan: user.pegawai?.jabatan ?? null,
+      noHp: user.pegawai?.noHp ?? null,
+      alamat: user.pegawai?.alamat ?? null,
       roles,
-      permissions: uniquePermissions,
     };
   }
 

@@ -77,6 +77,15 @@ export class AuthRepository {
     return this.prisma.user.findUnique({
       where: { id },
       include: {
+        pegawai: {
+          select: {
+            id: true,
+            nama: true,
+            jabatan: true,
+            noHp: true,
+            alamat: true,
+          },
+        },
         roles: {
           include: {
             role: {
@@ -101,6 +110,15 @@ export class AuthRepository {
         OR: [{ username: identifier }, { email: identifier }],
       },
       include: {
+        pegawai: {
+          select: {
+            id: true,
+            nama: true,
+            jabatan: true,
+            noHp: true,
+            alamat: true,
+          },
+        },
         roles: {
           include: {
             role: {
