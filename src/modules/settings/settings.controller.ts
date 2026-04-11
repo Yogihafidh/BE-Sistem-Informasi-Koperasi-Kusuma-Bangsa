@@ -124,8 +124,6 @@ export class SettingsController {
     @CurrentUser() user: UserFromJwt,
     @Req() request: Request,
   ) {
-    // ALUR IP 5
-    // request.ip diteruskan agar update setting tercatat dengan asal IP di audit trail.
     const clientIp = getClientIp(request);
     return this.settingsService.updateSetting(key, dto, user.userId, clientIp);
   }

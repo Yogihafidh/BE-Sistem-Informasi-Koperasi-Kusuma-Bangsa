@@ -16,7 +16,7 @@ import { ApiAuthErrors } from '../../common/decorators/api-docs.decorator';
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
-  @Get()
+  // Swagger dokumentation
   @ApiBearerAuth('JWT-auth')
   @Permissions('dashboard.read')
   @ApiOperation({ summary: 'Ringkasan dashboard koperasi' })
@@ -65,6 +65,9 @@ export class DashboardController {
     },
   })
   @ApiAuthErrors()
+
+  // Logic
+  @Get()
   getDashboard() {
     return this.dashboardService.getDashboard();
   }

@@ -48,6 +48,7 @@ export class PinjamanService {
     userId: number,
     ipAddress?: string,
   ) {
+    // 1. Ambil Konfigurasi Sistem
     const [
       maxTenorMonths,
       minTenorMonths,
@@ -64,27 +65,34 @@ export class PinjamanService {
       this.settingsService.getNumber(SETTING_KEYS.LOAN_AUTO_APPROVAL_LIMIT),
     ]);
 
+    // 2. Validasi melebihi batas tenor
     if (dto.tenorBulan > maxTenorMonths) {
       throw new BadRequestException(
         `Tenor pinjaman melebihi batas maksimum ${maxTenorMonths} bulan`,
       );
     }
 
+    // 3. Validasi kurang dari batas tenor
     if (dto.tenorBulan < minTenorMonths) {
       throw new BadRequestException(
         `Tenor pinjaman kurang dari batas minimum ${minTenorMonths} bulan`,
       );
     }
 
+    // 4. Validasi jumlah pinjaman melebihi batas maksimum
     if (dto.jumlahPinjaman > maxLoanAmount) {
       throw new BadRequestException(
         `Jumlah pinjaman melebihi batas maksimum ${maxLoanAmount}`,
       );
     }
 
+    // 5. Gunakan bunga default dari konfigurasi sistem
     const bungaPersen = defaultInterestPercent;
+
+    // 6. Cek kondisi auto-approval berdasarkan jumlah pinjaman
     const isAutoApproved = dto.jumlahPinjaman <= autoApprovalLimit;
 
+    // 7. Validasi nasabah harus ada dan aktif
     const nasabah = await this.pinjamanRepository.findNasabahById(
       dto.nasabahId,
     );
@@ -96,7 +104,9 @@ export class PinjamanService {
       throw new BadRequestException('Nasabah tidak aktif');
     }
 
+    // 8. Proses create pinjaman
     const pinjaman = await this.prisma.$transaction(async (tx) => {
+      // Create pinjaman
       const created = await this.pinjamanRepository.createPinjaman(
         {
           nasabahId: dto.nasabahId,
@@ -112,6 +122,7 @@ export class PinjamanService {
         tx,
       );
 
+      // Create audit trail pinjaman
       await this.auditTrailService.log(
         {
           action: AuditAction.CREATE,
@@ -539,6 +550,8 @@ export class PinjamanService {
     }
 
     await this.pinjamanRepository.softDeletePinjaman(id);
+    // ALUR AUDIT MODUL PINJAMAN
+    // Implementasi insert audit trail saat pinjaman di-soft-delete.
     await this.auditTrailService.log({
       action: 'DELETE' as AuditAction,
       userId,

@@ -79,6 +79,7 @@ export class DashboardRepository {
     });
   }
 
+  // Menghitung total saldo simpanan dengan menjumlahkan saldoBerjalan dari semua rekening simpanan yang masih aktif (deletedAt = null)
   sumSaldoSimpanan() {
     return this.prisma.rekeningSimpanan.aggregate({
       where: { deletedAt: null },
@@ -86,6 +87,7 @@ export class DashboardRepository {
     });
   }
 
+  // Menghitung total sisa pinjaman untuk semua pinjaman yang masih aktif (status DISETUJUI dan sisaPinjaman > 0)
   groupSaldoSimpananByJenis() {
     return this.prisma.rekeningSimpanan.groupBy({
       by: ['jenisSimpanan'],
@@ -94,6 +96,7 @@ export class DashboardRepository {
     });
   }
 
+  // Hitung total sisa pinjaman untuk semua pinjaman yang masih aktif (status DISETUJUI dan sisaPinjaman > 0)
   sumPinjamanAktifNominal() {
     return this.prisma.pinjaman.aggregate({
       where: {
@@ -105,9 +108,11 @@ export class DashboardRepository {
     });
   }
 
+  // Ambil daftar N pinjaman dengan sisa
   listTopOutstandingPinjaman(take: number) {
     return this.prisma.pinjaman.findMany({
       where: {
+        // Ambil data pinjaman
         deletedAt: null,
         status: PinjamanStatus.DISETUJUI,
         sisaPinjaman: { gt: new Prisma.Decimal(0) },
@@ -116,6 +121,7 @@ export class DashboardRepository {
         },
       },
       select: {
+        // Join with nasabah
         id: true,
         sisaPinjaman: true,
         nasabah: {
@@ -124,15 +130,17 @@ export class DashboardRepository {
           },
         },
       },
-      orderBy: { sisaPinjaman: 'desc' },
-      take,
+      orderBy: { sisaPinjaman: 'desc' }, // Urutkan terbesar
+      take, // Ambil N teratas
     });
   }
 
+  // Menghitung jumlah total nasabah (termasuk yang nonaktif)
   countNasabahTotal() {
     return this.prisma.nasabah.count({ where: { deletedAt: null } });
   }
 
+  // Menghitung jumlah nasabah yang masih aktif (status AKTIF)
   countNasabahAktif() {
     return this.prisma.nasabah.count({
       where: {
@@ -142,6 +150,7 @@ export class DashboardRepository {
     });
   }
 
+  // Menghitung jumlah nasabah yang baru mendaftar dalam rentang waktu tertentu
   countNasabahBaru(args: { tanggalFrom: Date; tanggalTo: Date }) {
     return this.prisma.nasabah.count({
       where: {
@@ -154,6 +163,7 @@ export class DashboardRepository {
     });
   }
 
+  // Menghitung jumlah nasabah yang keluar (nonaktif) dalam rentang waktu tertentu
   countNasabahKeluar(args: { tanggalFrom: Date; tanggalTo: Date }) {
     return this.prisma.nasabah.count({
       where: {
@@ -167,14 +177,18 @@ export class DashboardRepository {
     });
   }
 
+  // Menghitung jumlah nasabah berdasarkan kondisi tertentu
   countNasabah(where: Prisma.NasabahWhereInput) {
     return this.prisma.nasabah.count({ where });
   }
 
+  // Dapatkan cashflow masuk/keluar per bulan
   getCashflowTrend(args: { startMonth: Date; endMonth: Date }) {
+    // Tentukan Range Waktu
     const start = this.monthStart(args.startMonth);
     const endExclusive = this.nextMonthStart(args.endMonth);
 
+    // Query dengan grouping berdasarkan bulan, lalu hitung total kas masuk dan keluar per bulan
     return this.prisma.$queryRaw<
       Array<{
         year: number;
@@ -215,6 +229,7 @@ export class DashboardRepository {
     );
   }
 
+  // Dapatkan tren keanggotaan (anggota baru dan keluar) per bulan
   getKeanggotaanTrend(args: { startMonth: Date; endMonth: Date }) {
     const start = this.monthStart(args.startMonth);
     const endExclusive = this.nextMonthStart(args.endMonth);
