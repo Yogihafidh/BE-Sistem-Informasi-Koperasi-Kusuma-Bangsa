@@ -11,6 +11,7 @@ import {
 export class RekapitulasiRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
+  // Membuat filter query transaksi berdasarkan tanggal & jenis
   private buildTransaksiWhere(args: {
     tanggalFrom?: Date;
     tanggalTo?: Date;
@@ -34,6 +35,7 @@ export class RekapitulasiRepository {
     return where;
   }
 
+  // Mengambil jumlah & total nominal transaksi per jenis (dalam periode tertentu)
   groupTransaksiByJenis(args: { tanggalFrom: Date; tanggalTo: Date }) {
     return this.prisma.transaksi.groupBy({
       by: ['jenisTransaksi'],
@@ -46,6 +48,7 @@ export class RekapitulasiRepository {
     });
   }
 
+  // Mengambil total nominal transaksi per jenis sampai tanggal tertentu (kumulatif)
   groupTransaksiByJenisUntil(tanggalLte: Date) {
     return this.prisma.transaksi.groupBy({
       by: ['jenisTransaksi'],
@@ -56,6 +59,7 @@ export class RekapitulasiRepository {
     });
   }
 
+  // Mengambil jumlah nasabah unik yang melakukan transaksi dalam periode tertentu
   countDistinctNasabahTransaksi(args: { tanggalFrom: Date; tanggalTo: Date }) {
     return this.prisma.$queryRaw<{ count: bigint }[]>(
       Prisma.sql`
@@ -68,6 +72,7 @@ export class RekapitulasiRepository {
     );
   }
 
+  // Mengambil total saldo simpanan per jenis (pokok, wajib, sukarela)
   groupSaldoSimpananByJenis() {
     return this.prisma.rekeningSimpanan.groupBy({
       by: ['jenisSimpanan'],
@@ -76,6 +81,7 @@ export class RekapitulasiRepository {
     });
   }
 
+  // Mengambil total saldo simpanan per jenis pada waktu tertentu
   groupSaldoSimpananByJenisAt(tanggalLte: Date) {
     return this.prisma.rekeningSimpanan.groupBy({
       by: ['jenisSimpanan'],
@@ -86,11 +92,12 @@ export class RekapitulasiRepository {
     });
   }
 
+  // Mengambil total sisa pinjaman aktif dan jumlah pinjaman aktif
   getOutstandingPinjamanSummary() {
     return this.prisma.pinjaman.aggregate({
       where: {
         deletedAt: null,
-        status: PinjamanStatus.DISETUJUI,
+        status: { in: [PinjamanStatus.DISETUJUI, PinjamanStatus.TERLAMBAT] },
         sisaPinjaman: { gt: new Prisma.Decimal(0) },
       },
       _sum: { sisaPinjaman: true },
@@ -98,10 +105,11 @@ export class RekapitulasiRepository {
     });
   }
 
+  // Mengambil total sisa pinjaman aktif pada waktu tertentu
   getOutstandingPinjamanSummaryAt(tanggalLte: Date) {
     return this.prisma.pinjaman.aggregate({
       where: {
-        status: PinjamanStatus.DISETUJUI,
+        status: { in: [PinjamanStatus.DISETUJUI, PinjamanStatus.TERLAMBAT] },
         sisaPinjaman: { gt: new Prisma.Decimal(0) },
         AND: [
           {
@@ -120,37 +128,47 @@ export class RekapitulasiRepository {
     });
   }
 
+  // Mengambil jumlah nasabah yang memiliki pinjaman aktif
   countDistinctNasabahPinjamanAktif() {
     return this.prisma.$queryRaw<{ count: bigint }[]>(
       Prisma.sql`
         SELECT COUNT(DISTINCT "nasabahId") AS count
         FROM "Pinjaman"
         WHERE "deletedAt" IS NULL
-          AND "status" = ${PinjamanStatus.DISETUJUI}::"PinjamanStatus"
+          AND "status" IN (
+            ${PinjamanStatus.DISETUJUI}::"PinjamanStatus",
+            ${PinjamanStatus.TERLAMBAT}::"PinjamanStatus"
+          )
           AND "sisaPinjaman" > 0
       `,
     );
   }
 
+  // Mengambil jumlah nasabah yang memiliki pinjaman aktif pada waktu tertentu
   countDistinctNasabahPinjamanAktifAt(tanggalLte: Date) {
     return this.prisma.$queryRaw<{ count: bigint }[]>(
       Prisma.sql`
         SELECT COUNT(DISTINCT "nasabahId") AS count
         FROM "Pinjaman"
         WHERE ("deletedAt" IS NULL OR "deletedAt" > ${tanggalLte})
-          AND "status" = ${PinjamanStatus.DISETUJUI}::"PinjamanStatus"
+          AND "status" IN (
+            ${PinjamanStatus.DISETUJUI}::"PinjamanStatus",
+            ${PinjamanStatus.TERLAMBAT}::"PinjamanStatus"
+          )
           AND "sisaPinjaman" > 0
           AND ("tanggalPersetujuan" IS NULL OR "tanggalPersetujuan" <= ${tanggalLte})
       `,
     );
   }
 
+  // Mengambil jumlah seluruh nasabah terdaftar
   countNasabahTotal() {
     return this.prisma.nasabah.count({
       where: { deletedAt: null },
     });
   }
 
+  // Mengambil jumlah nasabah sampai waktu tertentu
   countNasabahTotalAt(tanggalLte: Date) {
     return this.prisma.nasabah.count({
       where: {
@@ -160,6 +178,7 @@ export class RekapitulasiRepository {
     });
   }
 
+  // Mengambil jumlah nasabah dengan status AKTIF
   countNasabahAktifAt(tanggalLte: Date) {
     return this.prisma.nasabah.count({
       where: {
@@ -170,6 +189,7 @@ export class RekapitulasiRepository {
     });
   }
 
+  // Mengambil jumlah nasabah baru dalam periode tertentu
   countNasabahBaru(args: { tanggalFrom: Date; tanggalTo: Date }) {
     return this.prisma.nasabah.count({
       where: {
@@ -182,6 +202,7 @@ export class RekapitulasiRepository {
     });
   }
 
+  // Mengambil jumlah nasabah yang keluar (NONAKTIF) dalam periode tertentu
   countNasabahKeluar(args: { tanggalFrom: Date; tanggalTo: Date }) {
     return this.prisma.nasabah.count({
       where: {

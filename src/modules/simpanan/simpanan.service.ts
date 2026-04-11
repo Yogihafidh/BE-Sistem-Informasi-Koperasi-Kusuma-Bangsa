@@ -57,11 +57,13 @@ export class SimpananService {
   ) {
     this.ensureValidDbIntId(rekeningId, 'Rekening simpanan');
 
+    // 1. Mengambil konfigurasi dari modul Settings
     const [minInitialDeposit, minMonthlyDeposit] = await Promise.all([
       this.settingsService.getNumber(SETTING_KEYS.SAVINGS_MIN_INITIAL_DEPOSIT),
       this.settingsService.getNumber(SETTING_KEYS.SAVINGS_MIN_MONTHLY_DEPOSIT),
     ]);
 
+    // 2. Validasi pegawai
     const pegawai = await this.simpananRepository.findPegawaiByUserId(userId);
     if (!pegawai) {
       throw new NotFoundException('Pegawai tidak ditemukan');
@@ -71,6 +73,7 @@ export class SimpananService {
       throw new BadRequestException('Pegawai tidak aktif');
     }
 
+    // 3. Validasi rekening simpanan
     const rekening = await this.simpananRepository.findRekeningById(rekeningId);
     if (!rekening) {
       throw new NotFoundException('Rekening simpanan tidak ditemukan');
@@ -80,6 +83,7 @@ export class SimpananService {
       throw new BadRequestException('Nasabah tidak aktif');
     }
 
+    // 4. Validasi nominal setoran
     const isInitialDeposit = rekening.saldoBerjalan.lessThanOrEqualTo(0);
     if (isInitialDeposit && dto.nominal < minInitialDeposit) {
       throw new BadRequestException(
@@ -87,6 +91,7 @@ export class SimpananService {
       );
     }
 
+    // 5. Validasi setoran bulanan untuk jenis simpanan wajib
     const isMandatoryMonthlyDeposit =
       rekening.jenisSimpanan === JenisSimpanan.WAJIB && !isInitialDeposit;
     if (isMandatoryMonthlyDeposit && dto.nominal < minMonthlyDeposit) {
@@ -116,10 +121,12 @@ export class SimpananService {
   ) {
     this.ensureValidDbIntId(rekeningId, 'Rekening simpanan');
 
+    // 1. Mengambil konfigurasi dari modul Settings
     const allowWithdrawalIfLoanActive = await this.settingsService.getBoolean(
       SETTING_KEYS.SAVINGS_ALLOW_WITHDRAWAL_IF_LOAN_ACTIVE,
     );
 
+    // 2. Validasi pegawai
     const pegawai = await this.simpananRepository.findPegawaiByUserId(userId);
     if (!pegawai) {
       throw new NotFoundException('Pegawai tidak ditemukan');
@@ -129,24 +136,32 @@ export class SimpananService {
       throw new BadRequestException('Pegawai tidak aktif');
     }
 
+    // 3. Validasi rekening simpanan
     const rekening = await this.simpananRepository.findRekeningById(rekeningId);
     if (!rekening) {
       throw new NotFoundException('Rekening simpanan tidak ditemukan');
     }
 
+    // 4. Validasi nasabah harus aktif
     if (rekening.nasabah.status !== NasabahStatus.AKTIF) {
       throw new BadRequestException('Nasabah tidak aktif');
     }
 
+    // 5. Validasi penarikan tidak diizinkan jika nasabah memiliki pinjaman aktif (jika setting tidak mengizinkan)
     if (!allowWithdrawalIfLoanActive) {
+      // Cek apakah nasabah memiliki pinjaman aktif dengan sisa pinjaman > 0
       const activeLoans = await this.prisma.pinjaman.count({
         where: {
           nasabahId: rekening.nasabahId,
           deletedAt: null,
-          status: PinjamanStatus.DISETUJUI,
+          status: {
+            in: [PinjamanStatus.DISETUJUI, PinjamanStatus.TERLAMBAT],
+          },
           sisaPinjaman: { gt: new Prisma.Decimal(0) },
         },
       });
+
+      // Jika ada pinjaman aktif, larang penarikan
       if (activeLoans > 0) {
         throw new BadRequestException(
           'Penarikan tidak diizinkan karena nasabah masih memiliki pinjaman aktif',
@@ -154,10 +169,12 @@ export class SimpananService {
       }
     }
 
+    // 6. Validasi saldo mencukupi untuk penarikan
     if (rekening.saldoBerjalan.lessThan(dto.nominal)) {
       throw new BadRequestException('Saldo simpanan tidak mencukupi');
     }
 
+    // 7. Proses penarikan dengan membuat transaksi penarikan
     return this.transaksiService.createTransaksi(
       {
         nasabahId: rekening.nasabahId,

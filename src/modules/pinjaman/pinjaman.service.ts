@@ -43,11 +43,59 @@ export class PinjamanService {
     return value instanceof Prisma.Decimal ? value : new Prisma.Decimal(value);
   }
 
+  private calculateJatuhTempo(baseDate: Date, tenorBulan: number) {
+    const jatuhTempo = new Date(baseDate);
+    jatuhTempo.setUTCMonth(jatuhTempo.getUTCMonth() + tenorBulan);
+    return jatuhTempo;
+  }
+
+  private async syncOverduePinjamanStatus(referenceDate = new Date()) {
+    await this.prisma.pinjaman.updateMany({
+      where: {
+        deletedAt: null,
+        status: PinjamanStatus.DISETUJUI,
+        sisaPinjaman: { gt: new Prisma.Decimal(0) },
+        jatuhTempo: {
+          lt: referenceDate,
+        },
+      },
+      data: {
+        status: PinjamanStatus.TERLAMBAT,
+      },
+    });
+  }
+
+  private buildFlatSummary(args: {
+    jumlahPinjaman: number | Prisma.Decimal;
+    bungaPersen: number | Prisma.Decimal;
+    tenorBulan: number;
+    sisaPinjaman: number | Prisma.Decimal;
+  }) {
+    const jumlahPinjaman = Number(args.jumlahPinjaman);
+    const bungaPersen = Number(args.bungaPersen);
+    const tenorBulan = Number(args.tenorBulan);
+    const totalBungaFlat = (jumlahPinjaman * bungaPersen * tenorBulan) / 100;
+    const totalPengembalian = jumlahPinjaman + totalBungaFlat;
+    const angsuranPerBulan =
+      tenorBulan > 0 ? totalPengembalian / tenorBulan : 0;
+
+    return {
+      jumlahPinjaman,
+      bungaPersen,
+      tenorBulan,
+      totalBungaFlat,
+      totalPengembalian,
+      angsuranPerBulan,
+      sisaPinjaman: Number(args.sisaPinjaman),
+    };
+  }
+
   async createPinjaman(
     dto: CreatePinjamanDto,
     userId: number,
     ipAddress?: string,
   ) {
+    // 1. Ambil Konfigurasi Sistem
     const [
       maxTenorMonths,
       minTenorMonths,
@@ -64,27 +112,34 @@ export class PinjamanService {
       this.settingsService.getNumber(SETTING_KEYS.LOAN_AUTO_APPROVAL_LIMIT),
     ]);
 
+    // 2. Validasi melebihi batas tenor
     if (dto.tenorBulan > maxTenorMonths) {
       throw new BadRequestException(
         `Tenor pinjaman melebihi batas maksimum ${maxTenorMonths} bulan`,
       );
     }
 
+    // 3. Validasi kurang dari batas tenor
     if (dto.tenorBulan < minTenorMonths) {
       throw new BadRequestException(
         `Tenor pinjaman kurang dari batas minimum ${minTenorMonths} bulan`,
       );
     }
 
+    // 4. Validasi jumlah pinjaman melebihi batas maksimum
     if (dto.jumlahPinjaman > maxLoanAmount) {
       throw new BadRequestException(
         `Jumlah pinjaman melebihi batas maksimum ${maxLoanAmount}`,
       );
     }
 
+    // 5. Gunakan bunga default dari konfigurasi sistem
     const bungaPersen = defaultInterestPercent;
+
+    // 6. Cek kondisi auto-approval berdasarkan jumlah pinjaman
     const isAutoApproved = dto.jumlahPinjaman <= autoApprovalLimit;
 
+    // 7. Validasi nasabah harus ada dan aktif
     const nasabah = await this.pinjamanRepository.findNasabahById(
       dto.nasabahId,
     );
@@ -96,22 +151,33 @@ export class PinjamanService {
       throw new BadRequestException('Nasabah tidak aktif');
     }
 
+    const totalBungaFlat =
+      (dto.jumlahPinjaman * bungaPersen * dto.tenorBulan) / 100;
+    const totalPengembalian = dto.jumlahPinjaman + totalBungaFlat;
+    const angsuranPerBulan = totalPengembalian / dto.tenorBulan;
+
+    // 8. Proses create pinjaman
     const pinjaman = await this.prisma.$transaction(async (tx) => {
+      // Create pinjaman
       const created = await this.pinjamanRepository.createPinjaman(
         {
           nasabahId: dto.nasabahId,
           jumlahPinjaman: dto.jumlahPinjaman,
           bungaPersen,
           tenorBulan: dto.tenorBulan,
+          totalPengembalian,
+          angsuranPerBulan,
           sisaPinjaman: 0,
           status: isAutoApproved
             ? PinjamanStatus.DISETUJUI
             : PinjamanStatus.PENDING,
           tanggalPersetujuan: isAutoApproved ? new Date() : null,
+          jatuhTempo: null,
         },
         tx,
       );
 
+      // Create audit trail pinjaman
       await this.auditTrailService.log(
         {
           action: AuditAction.CREATE,
@@ -135,7 +201,20 @@ export class PinjamanService {
 
     return {
       message: 'Pengajuan pinjaman berhasil dibuat',
-      data: pinjaman,
+      data: {
+        id: pinjaman.id,
+        nasabahId: pinjaman.nasabahId,
+        ...this.buildFlatSummary({
+          jumlahPinjaman: pinjaman.jumlahPinjaman,
+          bungaPersen: pinjaman.bungaPersen,
+          tenorBulan: pinjaman.tenorBulan,
+          sisaPinjaman: pinjaman.sisaPinjaman,
+        }),
+        status: pinjaman.status,
+        verifiedById: pinjaman.verifiedById,
+        tanggalPersetujuan: pinjaman.tanggalPersetujuan,
+        jatuhTempo: pinjaman.jatuhTempo,
+      },
     };
   }
 
@@ -143,6 +222,8 @@ export class PinjamanService {
     nasabahId: number,
     args: { after?: number; before?: number },
   ) {
+    await this.syncOverduePinjamanStatus();
+
     const nasabah = await this.pinjamanRepository.findNasabahById(nasabahId);
     if (!nasabah) {
       throw new NotFoundException('Nasabah tidak ditemukan');
@@ -160,7 +241,15 @@ export class PinjamanService {
         },
       });
 
-    const sanitizedData = data.map(({ verifiedById, ...item }) => item);
+    const sanitizedData = data.map(({ verifiedById, ...item }) => ({
+      ...item,
+      ...this.buildFlatSummary({
+        jumlahPinjaman: item.jumlahPinjaman,
+        bungaPersen: item.bungaPersen,
+        tenorBulan: item.tenorBulan,
+        sisaPinjaman: item.sisaPinjaman,
+      }),
+    }));
 
     return {
       message: 'Berhasil mengambil data pinjaman nasabah',
@@ -176,6 +265,8 @@ export class PinjamanService {
   }
 
   async listAllPinjaman(query: ListPinjamanQueryDto) {
+    await this.syncOverduePinjamanStatus();
+
     const limit = DEFAULT_PAGE_SIZE;
     const after = query.after;
     const before = query.before;
@@ -252,9 +343,12 @@ export class PinjamanService {
 
     const simplifiedData = sortedRows.map((item) => ({
       id: item.id,
-      jumlahPinjaman: String(item.jumlahPinjaman),
-      bungaPersen: String(item.bungaPersen),
-      tenorBulan: item.tenorBulan,
+      ...this.buildFlatSummary({
+        jumlahPinjaman: item.jumlahPinjaman,
+        bungaPersen: item.bungaPersen,
+        tenorBulan: item.tenorBulan,
+        sisaPinjaman: item.sisaPinjaman,
+      }),
       status: item.status,
       nasabah: {
         nama: item.nasabah.nama,
@@ -275,6 +369,8 @@ export class PinjamanService {
   }
 
   async getPinjamanDetail(id: number) {
+    await this.syncOverduePinjamanStatus();
+
     const pinjaman = await this.pinjamanRepository.findPinjamanDetailById(id);
     if (!pinjaman) {
       throw new NotFoundException('Pinjaman tidak ditemukan');
@@ -285,12 +381,15 @@ export class PinjamanService {
       data: [
         {
           id: pinjaman.id,
-          jumlahPinjaman: String(pinjaman.jumlahPinjaman),
-          bungaPersen: String(pinjaman.bungaPersen),
-          tenorBulan: pinjaman.tenorBulan,
-          sisaPinjaman: String(pinjaman.sisaPinjaman),
+          ...this.buildFlatSummary({
+            jumlahPinjaman: pinjaman.jumlahPinjaman,
+            bungaPersen: pinjaman.bungaPersen,
+            tenorBulan: pinjaman.tenorBulan,
+            sisaPinjaman: pinjaman.sisaPinjaman,
+          }),
           status: pinjaman.status,
           tanggalPersetujuan: pinjaman.tanggalPersetujuan,
+          jatuhTempo: pinjaman.jatuhTempo,
           nasabah: {
             pegawaiId: pinjaman.nasabah.pegawaiId,
             nomorAnggota: pinjaman.nasabah.nomorAnggota,
@@ -403,6 +502,8 @@ export class PinjamanService {
     dto: PencairanPinjamanDto,
     userId: number,
   ) {
+    await this.syncOverduePinjamanStatus();
+
     const pinjaman = await this.pinjamanRepository.findPinjamanById(id);
     if (!pinjaman) {
       throw new NotFoundException('Pinjaman tidak ditemukan');
@@ -458,13 +559,26 @@ export class PinjamanService {
   }
 
   async angsuranPinjaman(id: number, dto: AngsuranPinjamanDto, userId: number) {
+    await this.syncOverduePinjamanStatus();
+
     const pinjaman = await this.pinjamanRepository.findPinjamanById(id);
     if (!pinjaman) {
       throw new NotFoundException('Pinjaman tidak ditemukan');
     }
 
-    if (pinjaman.status !== PinjamanStatus.DISETUJUI) {
+    if (
+      pinjaman.status !== PinjamanStatus.DISETUJUI &&
+      pinjaman.status !== PinjamanStatus.TERLAMBAT
+    ) {
       throw new BadRequestException('Pinjaman belum disetujui');
+    }
+
+    const pencairanAgg = await this.pinjamanRepository.findPencairanTransaksi(
+      pinjaman.id,
+    );
+    const totalPencairan = pencairanAgg._sum.nominal ?? this.toDecimal(0);
+    if (totalPencairan.lessThanOrEqualTo(this.toDecimal(0))) {
+      throw new BadRequestException('Pinjaman belum dicairkan');
     }
 
     if (pinjaman.sisaPinjaman.lessThanOrEqualTo(this.toDecimal(0))) {
@@ -502,6 +616,8 @@ export class PinjamanService {
     pinjamanId: number,
     args: { after?: number; before?: number },
   ) {
+    await this.syncOverduePinjamanStatus();
+
     const pinjaman = await this.pinjamanRepository.findPinjamanById(pinjamanId);
     if (!pinjaman) {
       throw new NotFoundException('Pinjaman tidak ditemukan');
@@ -539,6 +655,8 @@ export class PinjamanService {
     }
 
     await this.pinjamanRepository.softDeletePinjaman(id);
+    // ALUR AUDIT MODUL PINJAMAN
+    // Implementasi insert audit trail saat pinjaman di-soft-delete.
     await this.auditTrailService.log({
       action: 'DELETE' as AuditAction,
       userId,

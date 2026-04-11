@@ -51,6 +51,7 @@ describe('Pinjaman Module (Integration)', () => {
 
       expect(res.body.message).toContain('berhasil');
       expect(res.body.data).toHaveProperty('id');
+      expect(res.body.data).not.toHaveProperty('totalKewajiban');
       autoApprovedPinjamanId = res.body.data.id;
     });
 
@@ -240,6 +241,27 @@ describe('Pinjaman Module (Integration)', () => {
         .expect(201);
 
       expect(res.body.message).toContain('berhasil');
+
+      const detailRes = await authGet(
+        app,
+        `/api/pinjaman/${pinjamanId}`,
+        adminToken,
+      ).expect(200);
+
+      const detail = detailRes.body.data[0] as {
+        jumlahPinjaman: string;
+        bungaPersen: string;
+        tenorBulan: number;
+        sisaPinjaman: string;
+      };
+
+      const jumlahPinjaman = Number(detail.jumlahPinjaman);
+      const bungaPersen = Number(detail.bungaPersen);
+      const tenorBulan = Number(detail.tenorBulan);
+      const expectedSisaPinjaman =
+        jumlahPinjaman + (jumlahPinjaman * bungaPersen * tenorBulan) / 100;
+
+      expect(Number(detail.sisaPinjaman)).toBeCloseTo(expectedSisaPinjaman, 2);
     });
 
     it('should reject duplicate pencairan', async () => {

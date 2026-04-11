@@ -105,22 +105,22 @@ export class AuditTrailService {
   }
 
   async log(payload: LogPayload, tx?: Prisma.TransactionClient) {
-    // ALUR AUDIT 1
-    // Hitung perubahan data (before/after) yang benar-benar berubah.
+    // Membandingkan data sebelum dan sesudah untuk mendapatkan hanya field yang benar-benar berubah
     const { oldValue, newValue } = buildDiff(payload.before, payload.after);
 
-    // ALUR AUDIT 2
-    // Samarkan field sensitif sebelum disimpan ke audit trail.
+    // Samarkan field sensitif sebelum disimpan ke audit trail
     const maskedOldValue = maskSensitiveFields(oldValue);
     const maskedNewValue = maskSensitiveFields(newValue);
 
+    // Mengecek apakah hasil perbandingan memiliki isi
     const hasOldValue = payload.before && Object.keys(oldValue).length;
     const hasNewValue = payload.after && Object.keys(newValue).length;
+
+    // Menentukan IP Address (prioritas dari payload, lalu dari request context, dan terakhir default unknown)
     const contextualIp = getRequestContext()?.ipAddress;
     const effectiveIp = (payload.ipAddress ?? contextualIp ?? 'unknown').trim();
 
-    // ALUR AUDIT 3
-    // Susun payload insert audit trail dari data konteks aksi.
+    // Susun payload insert audit trail dari data konteks aksi
     const data: Prisma.AuditTrailCreateInput = {
       action: payload.action,
       ...(payload.userId ? { user: { connect: { id: payload.userId } } } : {}),
@@ -130,7 +130,7 @@ export class AuditTrailService {
       ...(payload.entityId !== undefined && payload.entityId !== null
         ? { entityId: payload.entityId }
         : {}),
-      // ALUR IP 1
+
       // Pakai ipAddress dari payload, fallback ke request context, lalu default "unknown".
       ipAddress: effectiveIp,
       ...(hasOldValue
@@ -141,7 +141,6 @@ export class AuditTrailService {
         : {}),
     };
 
-    // ALUR AUDIT 4
     // Insert data audit trail ke database melalui repository.
     return this.auditRepository.createAuditTrail(data, tx);
   }

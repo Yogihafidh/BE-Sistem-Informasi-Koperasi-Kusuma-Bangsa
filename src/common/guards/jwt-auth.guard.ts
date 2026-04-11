@@ -3,6 +3,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { Reflector } from '@nestjs/core';
 import { Observable } from 'rxjs';
 
+// Mengecek apakah request punya JWT yang valid sebelum masuk controller
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
   constructor(private readonly reflector: Reflector) {
@@ -18,10 +19,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       context.getClass(),
     ]);
 
+    // Jika route public, langsung izinkan akses tanpa cek JWT
     if (isPublic) {
       return true;
     }
 
+    // Jika route tidak public maka cek JWT
     return super.canActivate(context);
   }
 }

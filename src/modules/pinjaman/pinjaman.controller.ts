@@ -41,6 +41,7 @@ import type { Request } from 'express';
 
 @ApiTags('pinjaman')
 @Controller('pinjaman')
+// Set guard otentikasi dan otorisasi untuk seluruh endpoint di controller ini
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class PinjamanController {
   constructor(private readonly pinjamanService: PinjamanService) {}
@@ -68,7 +69,7 @@ export class PinjamanController {
   @ApiQuery({
     name: 'status',
     required: false,
-    enum: ['PENDING', 'DISETUJUI', 'DITOLAK', 'LUNAS'],
+    enum: ['PENDING', 'DISETUJUI', 'TERLAMBAT', 'DITOLAK', 'LUNAS'],
     description: 'Filter status pinjaman',
   })
   @ApiQuery({

@@ -87,6 +87,7 @@ export class AuthService {
       password: hashedPassword,
     });
 
+    // Implementasi insert audit trail untuk aksi registrasi user
     await this.auditTrailService.log({
       action: AuditAction.CREATE,
       entityName: 'User',
@@ -112,6 +113,7 @@ export class AuthService {
       loginDto.usernameOrEmail,
     );
 
+    // Check if user exists
     if (!user) {
       this.securityLogService.logLoginFailed({
         identifier: loginDto.usernameOrEmail,
@@ -138,6 +140,7 @@ export class AuthService {
       user.password,
     );
 
+    // Log failed login attempt jika password tidak valid
     if (!isPasswordValid) {
       this.securityLogService.logLoginFailed({
         identifier: loginDto.usernameOrEmail,
@@ -151,6 +154,8 @@ export class AuthService {
     // Update last login
     const loginAt = new Date();
     await this.authRepository.updateLastLogin(user.id, loginAt);
+
+    // Audit trail implementation for user login action
     await this.auditTrailService.log({
       action: AuditAction.LOGIN,
       entityName: 'User',
@@ -166,9 +171,11 @@ export class AuthService {
     const permissions = user.roles.flatMap((ur) =>
       ur.role.permissions.map((rp) => rp.permission.code),
     );
+
+    // Hilangkan duplikasi
     const uniquePermissions = [...new Set(permissions)];
 
-    // Generate tokens
+    // Create JWT Payload with save roles and permissions in token payload
     const payload = {
       sub: user.id,
       username: user.username,
@@ -177,11 +184,13 @@ export class AuthService {
       permissions: uniquePermissions,
     };
 
+    // Get token expiration settings from config
     const accessTokenExpiresIn =
       this.configService.get<string>('jwt.accessTokenExpiresIn') || '15m';
     const refreshTokenExpiresIn =
       this.configService.get<string>('jwt.refreshTokenExpiresIn') || '7d';
 
+    // Generate access token and refresh token with payload that contains user info, roles, and permissions
     const accessToken = this.jwtService.sign(payload, {
       expiresIn: accessTokenExpiresIn as StringValue,
     });
@@ -199,6 +208,7 @@ export class AuthService {
         id: user.id,
         username: user.username,
         email: user.email,
+        pegawaiId: user.pegawai?.id ?? null,
         roles,
         permissions: uniquePermissions,
       },
@@ -215,10 +225,6 @@ export class AuthService {
     }
 
     const roles = user.roles.map((ur) => ur.role.name);
-    const permissions = user.roles.flatMap((ur) =>
-      ur.role.permissions.map((rp) => rp.permission.code),
-    );
-    const uniquePermissions = [...new Set(permissions)];
 
     return {
       id: user.id,
@@ -226,9 +232,12 @@ export class AuthService {
       email: user.email,
       isActive: user.isActive,
       lastLoginAt: user.lastLoginAt,
-      createdAt: user.createdAt,
+      pegawaiId: user.pegawai?.id ?? null,
+      nama: user.pegawai?.nama ?? null,
+      jabatan: user.pegawai?.jabatan ?? null,
+      noHp: user.pegawai?.noHp ?? null,
+      alamat: user.pegawai?.alamat ?? null,
       roles,
-      permissions: uniquePermissions,
     };
   }
 

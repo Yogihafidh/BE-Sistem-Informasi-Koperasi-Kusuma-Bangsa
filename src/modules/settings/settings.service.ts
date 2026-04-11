@@ -175,6 +175,7 @@ export class SettingsService implements OnModuleInit {
       description: dto.description,
     });
 
+    // Implementasi insert audit trail saat setting diubah
     await this.auditTrailService.log({
       action: AuditAction.UPDATE,
       userId,

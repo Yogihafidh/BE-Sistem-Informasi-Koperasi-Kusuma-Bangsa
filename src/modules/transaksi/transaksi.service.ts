@@ -32,11 +32,29 @@ export class TransaksiService {
     return new Prisma.Decimal(value);
   }
 
+  private calculateFlatOutstanding(
+    principal: Prisma.Decimal,
+    monthlyInterestPercent: Prisma.Decimal,
+    tenorBulan: number,
+  ) {
+    const monthlyRate = monthlyInterestPercent.div(100);
+    const totalInterest = principal.mul(monthlyRate).mul(tenorBulan);
+    return principal.plus(totalInterest);
+  }
+
+  private calculateJatuhTempo(baseDate: Date, tenorBulan: number) {
+    const jatuhTempo = new Date(baseDate);
+    jatuhTempo.setUTCMonth(jatuhTempo.getUTCMonth() + tenorBulan);
+    return jatuhTempo;
+  }
+
   async createTransaksi(dto: CreateTransaksiDto, userId: number) {
+    // 1. Mendapatkan konfigurasi dari modul Settings
     const maxDailyNominal = await this.settingsService.getNumber(
       SETTING_KEYS.TRANSACTION_MAX_DAILY_NOMINAL,
     );
 
+    // 2. Validasi pegawai
     const pegawai = await this.transaksiRepository.findPegawaiByUserId(userId);
     if (!pegawai) {
       throw new NotFoundException('Pegawai tidak ditemukan');
@@ -46,9 +64,11 @@ export class TransaksiService {
       throw new BadRequestException('Pegawai tidak aktif');
     }
 
+    // 3. Validasi nasabah
     const nasabah = await this.transaksiRepository.findNasabahById(
       dto.nasabahId,
     );
+
     if (!nasabah) {
       throw new NotFoundException('Nasabah tidak ditemukan');
     }
@@ -57,6 +77,7 @@ export class TransaksiService {
       throw new BadRequestException('Nasabah tidak aktif');
     }
 
+    // 4. Menentukan apakah transaksi butuh rekening atau pinjaman
     const requiresRekening =
       dto.jenisTransaksi === JenisTransaksi.SETORAN ||
       dto.jenisTransaksi === JenisTransaksi.PENARIKAN;
@@ -64,21 +85,27 @@ export class TransaksiService {
       dto.jenisTransaksi === JenisTransaksi.PENCAIRAN ||
       dto.jenisTransaksi === JenisTransaksi.ANGSURAN;
 
+    // Jika transaksi butuh rekening tapi tidak dikirim maka error
     if (requiresRekening && !dto.rekeningSimpananId) {
       throw new BadRequestException('Rekening simpanan wajib diisi');
     }
 
+    // Jika transaksi butuh pinjaman tapi tidak dikirim maka error
     if (requiresPinjaman && !dto.pinjamanId) {
       throw new BadRequestException('Pinjaman wajib diisi');
     }
 
+    // Tidak boleh kirim dua-duanya sekaligus
     if (dto.rekeningSimpananId && dto.pinjamanId) {
       throw new BadRequestException(
         'Rekening simpanan dan pinjaman tidak boleh bersamaan',
       );
     }
 
+    // Konversi nominal ke Decimal untuk perhitungam
     const nominal = this.toDecimal(dto.nominal);
+
+    // Ambil data rekening jika diperlukan unutuk validasi dan perhitungan saldo
     const rekening = requiresRekening
       ? await this.transaksiRepository.findRekeningSimpananById(
           dto.rekeningSimpananId as number,
@@ -89,6 +116,7 @@ export class TransaksiService {
       throw new NotFoundException('Rekening simpanan tidak ditemukan');
     }
 
+    // Ambil data pinjaman jika diperlukan untuk validasi dan perhitungan sisa pinjaman
     const pinjaman = requiresPinjaman
       ? await this.transaksiRepository.findPinjamanById(
           dto.pinjamanId as number,
@@ -99,6 +127,10 @@ export class TransaksiService {
       throw new NotFoundException('Pinjaman tidak ditemukan');
     }
 
+    // Dapatkan tanggal transaksi untuk validasi keterlambatan dan batas harian
+    const tanggal = dto.tanggal ? new Date(dto.tanggal) : new Date();
+
+    // LOGIC UPDATE REKENING
     let updateRekening:
       | {
           id: number;
@@ -123,20 +155,32 @@ export class TransaksiService {
       };
     }
 
+    // LOGIC UPDATE PINJAMAN
     let updatePinjaman:
       | {
           id: number;
           sisaPinjaman: Prisma.Decimal;
+          jatuhTempo?: Date;
           status?: PinjamanStatus;
         }
       | undefined;
     if (pinjaman) {
-      if (pinjaman.status !== PinjamanStatus.DISETUJUI) {
+      const isAngsuran = dto.jenisTransaksi === JenisTransaksi.ANGSURAN;
+      const isPencairan = dto.jenisTransaksi === JenisTransaksi.PENCAIRAN;
+      const isApproved = pinjaman.status === PinjamanStatus.DISETUJUI;
+      const isOverdue = pinjaman.status === PinjamanStatus.TERLAMBAT;
+
+      if (isPencairan && !isApproved) {
+        throw new BadRequestException('Pinjaman belum disetujui');
+      }
+
+      if (isAngsuran && !isApproved && !isOverdue) {
         throw new BadRequestException('Pinjaman belum disetujui');
       }
 
       let sisaBaru = pinjaman.sisaPinjaman;
       let statusPinjaman: PinjamanStatus | undefined;
+      let jatuhTempoBaru: Date | undefined;
 
       if (dto.jenisTransaksi === JenisTransaksi.PENCAIRAN) {
         if (pinjaman.sisaPinjaman.greaterThan(this.toDecimal(0))) {
@@ -145,7 +189,24 @@ export class TransaksiService {
         if (!nominal.equals(pinjaman.jumlahPinjaman)) {
           throw new BadRequestException('Pencairan anda tidak sesuai');
         }
-        sisaBaru = pinjaman.jumlahPinjaman;
+        // Saat pencairan, sisa pinjaman dimulai dari total pengembalian (pokok + bunga flat).
+        sisaBaru = this.calculateFlatOutstanding(
+          pinjaman.jumlahPinjaman,
+          pinjaman.bungaPersen,
+          pinjaman.tenorBulan,
+        );
+
+        const basisJatuhTempo = pinjaman.tanggalPersetujuan ?? tanggal;
+        jatuhTempoBaru = this.calculateJatuhTempo(
+          basisJatuhTempo,
+          pinjaman.tenorBulan,
+        );
+        if (
+          jatuhTempoBaru < tanggal &&
+          sisaBaru.greaterThan(this.toDecimal(0))
+        ) {
+          statusPinjaman = 'TERLAMBAT' as PinjamanStatus;
+        }
       } else {
         if (pinjaman.sisaPinjaman.lessThan(nominal)) {
           throw new BadRequestException('Nominal melebihi sisa pinjaman');
@@ -153,18 +214,20 @@ export class TransaksiService {
         sisaBaru = pinjaman.sisaPinjaman.minus(nominal);
         if (sisaBaru.lessThanOrEqualTo(this.toDecimal(0))) {
           statusPinjaman = PinjamanStatus.LUNAS;
+        } else if (pinjaman.jatuhTempo && pinjaman.jatuhTempo < tanggal) {
+          statusPinjaman = 'TERLAMBAT' as PinjamanStatus;
         }
       }
 
       updatePinjaman = {
         id: pinjaman.id,
         sisaPinjaman: sisaBaru,
+        ...(jatuhTempoBaru ? { jatuhTempo: jatuhTempoBaru } : {}),
         status: statusPinjaman,
       };
     }
 
-    const tanggal = dto.tanggal ? new Date(dto.tanggal) : new Date();
-
+    // VALIDASI BATAS HARIAN
     const tanggalFrom = new Date(
       tanggal.getFullYear(),
       tanggal.getMonth(),
@@ -184,6 +247,7 @@ export class TransaksiService {
       999,
     );
 
+    // Hitung total transaksi hari ini
     const dailyAgg =
       await this.transaksiRepository.sumNominalByNasabahPerTanggal({
         nasabahId: dto.nasabahId,
@@ -191,13 +255,17 @@ export class TransaksiService {
         tanggalTo,
       });
     const totalToday = Number(dailyAgg._sum.nominal ?? 0);
+
+    // Jika melebihi batas maka error
     if (totalToday + dto.nominal > maxDailyNominal) {
       throw new BadRequestException(
         `Total transaksi harian melebihi batas maksimum ${maxDailyNominal}`,
       );
     }
 
+    // TRANSACTION DATABASE
     const transaksi = await this.prisma.$transaction(async (tx) => {
+      // Update rekening jika ada
       if (updateRekening) {
         await tx.rekeningSimpanan.update({
           where: { id: updateRekening.id },
@@ -205,16 +273,21 @@ export class TransaksiService {
         });
       }
 
+      // Update pinjaman jika ada
       if (updatePinjaman) {
         await tx.pinjaman.update({
           where: { id: updatePinjaman.id },
           data: {
             sisaPinjaman: updatePinjaman.sisaPinjaman,
+            ...(updatePinjaman.jatuhTempo
+              ? { jatuhTempo: updatePinjaman.jatuhTempo }
+              : {}),
             ...(updatePinjaman.status ? { status: updatePinjaman.status } : {}),
           },
         });
       }
 
+      // Simpan transaksi utama
       return tx.transaksi.create({
         data: {
           nasabahId: dto.nasabahId,
@@ -244,6 +317,7 @@ export class TransaksiService {
       });
     });
 
+    // Menentukan entity aduit
     let entityName = 'transaksi';
     let entityId = transaksi.id;
 
@@ -255,6 +329,7 @@ export class TransaksiService {
       entityId = dto.pinjamanId as number;
     }
 
+    // Catat audit trail
     await this.auditTrailService.log({
       action: AuditAction.CREATE,
       userId,

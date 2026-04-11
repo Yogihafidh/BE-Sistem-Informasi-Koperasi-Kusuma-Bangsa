@@ -121,6 +121,7 @@ describe('Auth Module (Integration)', () => {
       expect(res.body).toHaveProperty('accessToken');
       expect(res.body).toHaveProperty('refreshToken');
       expect(res.body.user.username).toBe('admin');
+      expect(typeof res.body.user.pegawaiId).toBe('number');
       expect(res.body.user.roles).toContain('Admin');
     });
 
@@ -165,7 +166,13 @@ describe('Auth Module (Integration)', () => {
       expect(res.body.username).toBe('admin');
       expect(res.body.email).toBe('admin@koperasi.com');
       expect(res.body.roles).toContain('Admin');
-      expect(res.body.permissions).toBeDefined();
+      expect(res.body.permissions).toBeUndefined();
+      expect(res.body.createdAt).toBeUndefined();
+      expect(typeof res.body.pegawaiId).toBe('number');
+      expect(res.body.nama).toBeDefined();
+      expect(res.body.jabatan).toBeDefined();
+      expect(res.body.noHp).toBeDefined();
+      expect(res.body.alamat).toBeDefined();
       expect(res.body.isActive).toBe(true);
     });
 

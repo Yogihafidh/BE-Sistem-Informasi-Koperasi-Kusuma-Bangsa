@@ -62,9 +62,11 @@ export class LaporanService {
     tahun: number,
     userId: number,
   ): Promise<{ message: string; data: LaporanKeuangan }> {
+    // Ambil data rekapitulasi (hasil perhitungan semua data)
     const rekap: RekapitulasiBulanan =
       await this.rekapitulasiService.getRekapitulasiBulanan(bulan, tahun);
 
+    // Mapping data rekap ke format laporan
     const payload = {
       periodeBulan: bulan,
       periodeTahun: tahun,
@@ -77,15 +79,18 @@ export class LaporanService {
       generatedAt: new Date(),
     };
 
+    // Cek apakah laporan periode ini sudah ada
     const existing = await this.laporanRepository.findLaporanKeuanganByPeriode(
       bulan,
       tahun,
     );
 
+    // Jika sudah FINAL maka tidak boleh diubah
     if (existing?.statusLaporan === StatusLaporan.FINAL) {
       throw new BadRequestException('Laporan keuangan sudah FINAL');
     }
 
+    // Jika sudah ada  UPDATE kalau belum ada CREATE
     const laporan = existing
       ? await this.laporanRepository.updateLaporanKeuangan(existing.id, payload)
       : await this.laporanRepository.createLaporanKeuangan({
@@ -93,6 +98,7 @@ export class LaporanService {
           statusLaporan: StatusLaporan.DRAFT,
         });
 
+    // Catat audit trail (siapa generate laporan)
     await this.auditTrailService.log({
       action: 'GENERATE_REPORT' as AuditAction,
       userId,
@@ -124,6 +130,7 @@ export class LaporanService {
     };
   }
 
+  // MAP DATA LAPORAN KE VIEW
   private mapLaporanSnapshot(laporan: LaporanKeuangan): LaporanSnapshotView {
     const totalSimpanan = this.toNumber(laporan.totalSimpanan);
     const totalPenarikan = this.toNumber(laporan.totalPenarikan);
@@ -159,6 +166,7 @@ export class LaporanService {
     bulan?: number,
     tahun?: number,
   ): Promise<LaporanSnapshotView> {
+    // Jika ada bulan & tahun ambil laporan periode itu tapi jika tidak ambil laporan terbaru
     const laporan =
       typeof bulan === 'number' && typeof tahun === 'number'
         ? await this.laporanRepository.findLaporanKeuanganByPeriode(
@@ -167,6 +175,7 @@ export class LaporanService {
           )
         : await this.laporanRepository.findLatestLaporanKeuangan();
 
+    // Jika tidak ditemukan makaerror
     if (!laporan) {
       throw new NotFoundException('Laporan keuangan tidak ditemukan');
     }
@@ -174,20 +183,26 @@ export class LaporanService {
     return this.mapLaporanSnapshot(laporan);
   }
 
+  // FINALIZE LAPORAN
   async finalizeLaporanKeuangan(
     id: number,
     userId: number,
   ): Promise<{ message: string; data: LaporanKeuangan }> {
+    // Ambil laporan berdasarkan ID
     const laporan = await this.laporanRepository.findLaporanKeuanganById(id);
+
+    // Jika tidak ada kembalikan error
     if (!laporan) {
       throw new NotFoundException('Laporan keuangan tidak ditemukan');
     }
 
+    // Update status jadi FINAL
     const updated = await this.laporanRepository.updateLaporanStatus(
       id,
       StatusLaporan.FINAL,
     );
 
+    // Catat audit trail (siapa finalize laporan)
     await this.auditTrailService.log({
       action: 'FINALIZE_REPORT' as AuditAction,
       userId,
