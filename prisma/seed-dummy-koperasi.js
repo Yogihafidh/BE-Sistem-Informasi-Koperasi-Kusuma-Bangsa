@@ -20,6 +20,13 @@ function monthKey(date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+// ALUR 2B: Hitung tanggal jatuh tempo sesuai tenor (UTC-based agar konsisten lintas timezone).
+function calculateJatuhTempo(baseDate, tenorBulan) {
+  const jatuhTempo = new Date(baseDate);
+  jatuhTempo.setUTCMonth(jatuhTempo.getUTCMonth() + tenorBulan);
+  return jatuhTempo;
+}
+
 // ALUR 3: Buat/update user dummy lalu pasangkan role agar data pegawai punya akun valid.
 async function ensureUserWithRole({ username, email, roleName }) {
   const role = await prisma.role.findUnique({ where: { name: roleName } });
@@ -937,6 +944,11 @@ async function seedDummyKoperasiBanyumas() {
   const pinjamanByCode = {};
   for (const spec of pinjamanSpecs) {
     const nasabah = nasabahByCode[spec.nasabahCode];
+    const bungaPersen = Number(spec.bungaPersen);
+    const totalBungaFlat =
+      (spec.jumlahPinjaman * bungaPersen * spec.tenorBulan) / 100;
+    const totalPengembalian = spec.jumlahPinjaman + totalBungaFlat;
+    const angsuranPerBulan = totalPengembalian / spec.tenorBulan;
 
     const pinjaman = await prisma.pinjaman.create({
       data: {
@@ -944,10 +956,14 @@ async function seedDummyKoperasiBanyumas() {
         jumlahPinjaman: String(spec.jumlahPinjaman),
         bungaPersen: spec.bungaPersen,
         tenorBulan: spec.tenorBulan,
-        sisaPinjaman: String(spec.jumlahPinjaman),
+        totalPengembalian: String(totalPengembalian),
+        angsuranPerBulan: String(angsuranPerBulan),
+        // Saat pinjaman baru disetujui, outstanding belum berjalan sampai ada pencairan.
+        sisaPinjaman: '0',
         status: PinjamanStatus.DISETUJUI,
         verifiedById: pegawaiByKey['PGW-003'].id,
         tanggalPersetujuan: spec.tanggalPersetujuan,
+        jatuhTempo: null,
       },
     });
 
@@ -1037,8 +1053,38 @@ async function seedDummyKoperasiBanyumas() {
 
       let nextSisa = Number(pinjaman.sisaPinjaman);
       let nextStatus = pinjaman.status;
+      let nextJatuhTempo = pinjaman.jatuhTempo;
+
+      if (tx.t === JenisTransaksi.PENCAIRAN) {
+        if (nextSisa > 0) {
+          throw new Error(
+            `Pencairan duplikat terdeteksi untuk ${tx.pinjaman}.`,
+          );
+        }
+        if (tx.nominal !== Number(pinjaman.jumlahPinjaman)) {
+          throw new Error(
+            `Nominal pencairan ${tx.pinjaman} tidak sesuai pokok pinjaman.`,
+          );
+        }
+
+        nextSisa = Number(pinjaman.totalPengembalian);
+        const basisJatuhTempo = pinjaman.tanggalPersetujuan ?? tx.d;
+        nextJatuhTempo = calculateJatuhTempo(
+          basisJatuhTempo,
+          pinjaman.tenorBulan,
+        );
+
+        if (nextJatuhTempo < tx.d && nextSisa > 0) {
+          nextStatus = PinjamanStatus.TERLAMBAT;
+        }
+      }
 
       if (tx.t === JenisTransaksi.ANGSURAN) {
+        if (nextSisa <= 0) {
+          throw new Error(
+            `Angsuran ${tx.pinjaman} terjadi sebelum pencairan atau pinjaman sudah lunas.`,
+          );
+        }
         nextSisa -= tx.nominal;
         if (nextSisa < 0) {
           throw new Error(
@@ -1047,6 +1093,8 @@ async function seedDummyKoperasiBanyumas() {
         }
         if (nextSisa === 0) {
           nextStatus = PinjamanStatus.LUNAS;
+        } else if (nextJatuhTempo && nextJatuhTempo < tx.d) {
+          nextStatus = PinjamanStatus.TERLAMBAT;
         }
       }
 
@@ -1064,12 +1112,16 @@ async function seedDummyKoperasiBanyumas() {
         },
       });
 
-      if (tx.t === JenisTransaksi.ANGSURAN) {
+      if (
+        tx.t === JenisTransaksi.PENCAIRAN ||
+        tx.t === JenisTransaksi.ANGSURAN
+      ) {
         const updatedPinjaman = await prisma.pinjaman.update({
           where: { id: pinjaman.id },
           data: {
             sisaPinjaman: String(nextSisa),
             status: nextStatus,
+            jatuhTempo: nextJatuhTempo,
           },
         });
 
