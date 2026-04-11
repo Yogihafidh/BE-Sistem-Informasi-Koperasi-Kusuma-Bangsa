@@ -101,7 +101,7 @@ export class DashboardRepository {
     return this.prisma.pinjaman.aggregate({
       where: {
         deletedAt: null,
-        status: PinjamanStatus.DISETUJUI,
+        status: { in: [PinjamanStatus.DISETUJUI, PinjamanStatus.TERLAMBAT] },
         sisaPinjaman: { gt: new Prisma.Decimal(0) },
       },
       _sum: { sisaPinjaman: true },
@@ -114,7 +114,7 @@ export class DashboardRepository {
       where: {
         // Ambil data pinjaman
         deletedAt: null,
-        status: PinjamanStatus.DISETUJUI,
+        status: { in: [PinjamanStatus.DISETUJUI, PinjamanStatus.TERLAMBAT] },
         sisaPinjaman: { gt: new Prisma.Decimal(0) },
         nasabah: {
           deletedAt: null,

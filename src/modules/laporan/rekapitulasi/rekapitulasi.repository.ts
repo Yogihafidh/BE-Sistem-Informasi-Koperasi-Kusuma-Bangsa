@@ -97,7 +97,7 @@ export class RekapitulasiRepository {
     return this.prisma.pinjaman.aggregate({
       where: {
         deletedAt: null,
-        status: PinjamanStatus.DISETUJUI,
+        status: { in: [PinjamanStatus.DISETUJUI, PinjamanStatus.TERLAMBAT] },
         sisaPinjaman: { gt: new Prisma.Decimal(0) },
       },
       _sum: { sisaPinjaman: true },
@@ -109,7 +109,7 @@ export class RekapitulasiRepository {
   getOutstandingPinjamanSummaryAt(tanggalLte: Date) {
     return this.prisma.pinjaman.aggregate({
       where: {
-        status: PinjamanStatus.DISETUJUI,
+        status: { in: [PinjamanStatus.DISETUJUI, PinjamanStatus.TERLAMBAT] },
         sisaPinjaman: { gt: new Prisma.Decimal(0) },
         AND: [
           {
@@ -135,7 +135,10 @@ export class RekapitulasiRepository {
         SELECT COUNT(DISTINCT "nasabahId") AS count
         FROM "Pinjaman"
         WHERE "deletedAt" IS NULL
-          AND "status" = ${PinjamanStatus.DISETUJUI}::"PinjamanStatus"
+          AND "status" IN (
+            ${PinjamanStatus.DISETUJUI}::"PinjamanStatus",
+            ${PinjamanStatus.TERLAMBAT}::"PinjamanStatus"
+          )
           AND "sisaPinjaman" > 0
       `,
     );
@@ -148,7 +151,10 @@ export class RekapitulasiRepository {
         SELECT COUNT(DISTINCT "nasabahId") AS count
         FROM "Pinjaman"
         WHERE ("deletedAt" IS NULL OR "deletedAt" > ${tanggalLte})
-          AND "status" = ${PinjamanStatus.DISETUJUI}::"PinjamanStatus"
+          AND "status" IN (
+            ${PinjamanStatus.DISETUJUI}::"PinjamanStatus",
+            ${PinjamanStatus.TERLAMBAT}::"PinjamanStatus"
+          )
           AND "sisaPinjaman" > 0
           AND ("tanggalPersetujuan" IS NULL OR "tanggalPersetujuan" <= ${tanggalLte})
       `,

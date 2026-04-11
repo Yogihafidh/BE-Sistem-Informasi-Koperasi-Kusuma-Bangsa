@@ -41,9 +41,12 @@ export class PinjamanRepository {
       jumlahPinjaman: number;
       bungaPersen: number;
       tenorBulan: number;
+      totalPengembalian: number;
+      angsuranPerBulan: number;
       sisaPinjaman: number;
       status: PinjamanStatus;
       tanggalPersetujuan?: Date | null;
+      jatuhTempo?: Date | null;
     },
     tx?: Prisma.TransactionClient,
   ) {
@@ -75,9 +78,12 @@ export class PinjamanRepository {
         jumlahPinjaman: true,
         bungaPersen: true,
         tenorBulan: true,
+        totalPengembalian: true,
+        angsuranPerBulan: true,
         sisaPinjaman: true,
         status: true,
         tanggalPersetujuan: true,
+        jatuhTempo: true,
         nasabah: {
           select: {
             pegawaiId: true,

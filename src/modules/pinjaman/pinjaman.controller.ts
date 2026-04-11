@@ -69,7 +69,7 @@ export class PinjamanController {
   @ApiQuery({
     name: 'status',
     required: false,
-    enum: ['PENDING', 'DISETUJUI', 'DITOLAK', 'LUNAS'],
+    enum: ['PENDING', 'DISETUJUI', 'TERLAMBAT', 'DITOLAK', 'LUNAS'],
     description: 'Filter status pinjaman',
   })
   @ApiQuery({

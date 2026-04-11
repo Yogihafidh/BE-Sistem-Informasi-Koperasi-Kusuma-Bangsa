@@ -30,7 +30,7 @@ export class SimpananRepository {
       where: {
         nasabahId,
         deletedAt: null,
-        status: PinjamanStatus.DISETUJUI,
+        status: { in: [PinjamanStatus.DISETUJUI, PinjamanStatus.TERLAMBAT] },
         sisaPinjaman: { gt: new Prisma.Decimal(0) },
       },
     });

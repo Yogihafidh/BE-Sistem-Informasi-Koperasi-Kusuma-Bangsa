@@ -32,6 +32,22 @@ export class TransaksiService {
     return new Prisma.Decimal(value);
   }
 
+  private calculateFlatOutstanding(
+    principal: Prisma.Decimal,
+    monthlyInterestPercent: Prisma.Decimal,
+    tenorBulan: number,
+  ) {
+    const monthlyRate = monthlyInterestPercent.div(100);
+    const totalInterest = principal.mul(monthlyRate).mul(tenorBulan);
+    return principal.plus(totalInterest);
+  }
+
+  private calculateJatuhTempo(baseDate: Date, tenorBulan: number) {
+    const jatuhTempo = new Date(baseDate);
+    jatuhTempo.setUTCMonth(jatuhTempo.getUTCMonth() + tenorBulan);
+    return jatuhTempo;
+  }
+
   async createTransaksi(dto: CreateTransaksiDto, userId: number) {
     // 1. Mendapatkan konfigurasi dari modul Settings
     const maxDailyNominal = await this.settingsService.getNumber(
@@ -111,6 +127,9 @@ export class TransaksiService {
       throw new NotFoundException('Pinjaman tidak ditemukan');
     }
 
+    // Dapatkan tanggal transaksi untuk validasi keterlambatan dan batas harian
+    const tanggal = dto.tanggal ? new Date(dto.tanggal) : new Date();
+
     // LOGIC UPDATE REKENING
     let updateRekening:
       | {
@@ -141,16 +160,27 @@ export class TransaksiService {
       | {
           id: number;
           sisaPinjaman: Prisma.Decimal;
+          jatuhTempo?: Date;
           status?: PinjamanStatus;
         }
       | undefined;
     if (pinjaman) {
-      if (pinjaman.status !== PinjamanStatus.DISETUJUI) {
+      const isAngsuran = dto.jenisTransaksi === JenisTransaksi.ANGSURAN;
+      const isPencairan = dto.jenisTransaksi === JenisTransaksi.PENCAIRAN;
+      const isApproved = pinjaman.status === PinjamanStatus.DISETUJUI;
+      const isOverdue = pinjaman.status === PinjamanStatus.TERLAMBAT;
+
+      if (isPencairan && !isApproved) {
+        throw new BadRequestException('Pinjaman belum disetujui');
+      }
+
+      if (isAngsuran && !isApproved && !isOverdue) {
         throw new BadRequestException('Pinjaman belum disetujui');
       }
 
       let sisaBaru = pinjaman.sisaPinjaman;
       let statusPinjaman: PinjamanStatus | undefined;
+      let jatuhTempoBaru: Date | undefined;
 
       if (dto.jenisTransaksi === JenisTransaksi.PENCAIRAN) {
         if (pinjaman.sisaPinjaman.greaterThan(this.toDecimal(0))) {
@@ -159,7 +189,24 @@ export class TransaksiService {
         if (!nominal.equals(pinjaman.jumlahPinjaman)) {
           throw new BadRequestException('Pencairan anda tidak sesuai');
         }
-        sisaBaru = pinjaman.jumlahPinjaman;
+        // Saat pencairan, sisa pinjaman dimulai dari total pengembalian (pokok + bunga flat).
+        sisaBaru = this.calculateFlatOutstanding(
+          pinjaman.jumlahPinjaman,
+          pinjaman.bungaPersen,
+          pinjaman.tenorBulan,
+        );
+
+        const basisJatuhTempo = pinjaman.tanggalPersetujuan ?? tanggal;
+        jatuhTempoBaru = this.calculateJatuhTempo(
+          basisJatuhTempo,
+          pinjaman.tenorBulan,
+        );
+        if (
+          jatuhTempoBaru < tanggal &&
+          sisaBaru.greaterThan(this.toDecimal(0))
+        ) {
+          statusPinjaman = 'TERLAMBAT' as PinjamanStatus;
+        }
       } else {
         if (pinjaman.sisaPinjaman.lessThan(nominal)) {
           throw new BadRequestException('Nominal melebihi sisa pinjaman');
@@ -167,20 +214,20 @@ export class TransaksiService {
         sisaBaru = pinjaman.sisaPinjaman.minus(nominal);
         if (sisaBaru.lessThanOrEqualTo(this.toDecimal(0))) {
           statusPinjaman = PinjamanStatus.LUNAS;
+        } else if (pinjaman.jatuhTempo && pinjaman.jatuhTempo < tanggal) {
+          statusPinjaman = 'TERLAMBAT' as PinjamanStatus;
         }
       }
 
       updatePinjaman = {
         id: pinjaman.id,
         sisaPinjaman: sisaBaru,
+        ...(jatuhTempoBaru ? { jatuhTempo: jatuhTempoBaru } : {}),
         status: statusPinjaman,
       };
     }
 
     // VALIDASI BATAS HARIAN
-    // Dapatkan tanggal transaksi
-    const tanggal = dto.tanggal ? new Date(dto.tanggal) : new Date();
-
     const tanggalFrom = new Date(
       tanggal.getFullYear(),
       tanggal.getMonth(),
@@ -232,6 +279,9 @@ export class TransaksiService {
           where: { id: updatePinjaman.id },
           data: {
             sisaPinjaman: updatePinjaman.sisaPinjaman,
+            ...(updatePinjaman.jatuhTempo
+              ? { jatuhTempo: updatePinjaman.jatuhTempo }
+              : {}),
             ...(updatePinjaman.status ? { status: updatePinjaman.status } : {}),
           },
         });

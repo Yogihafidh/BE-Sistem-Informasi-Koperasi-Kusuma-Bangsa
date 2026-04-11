@@ -134,10 +134,13 @@ model Pinjaman {
   jumlahPinjaman     Decimal
   bungaPersen        Decimal
   tenorBulan         Int
+  totalPengembalian  Decimal
+  angsuranPerBulan   Decimal
   sisaPinjaman       Decimal
   status             PinjamanStatus
   verifiedById       Int?
   tanggalPersetujuan DateTime?     @db.Timestamptz(3)
+  jatuhTempo         DateTime?     @db.Timestamptz(3)
   deletedAt          DateTime?     @db.Timestamptz(3)
   nasabah            Nasabah        @relation(fields: [nasabahId], references: [id])
   verifiedBy         Pegawai?       @relation("PinjamanVerifiedBy", fields: [verifiedById], references: [id])
@@ -246,6 +249,7 @@ enum JenisSimpanan {
 enum PinjamanStatus {
   PENDING
   DISETUJUI
+  TERLAMBAT
   DITOLAK
   LUNAS
 }
