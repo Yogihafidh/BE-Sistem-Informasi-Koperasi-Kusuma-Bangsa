@@ -16,24 +16,41 @@ import {
   authPost,
 } from '../helpers/auth.helper';
 
+/**
+ * Integration test untuk memvalidasi endpoint autentikasi dan otorisasi dasar.
+ *
+ * Tujuan:
+ * - Memastikan proses register, login, dan akses endpoint auth berjalan benar
+ * - Menjaga konsistensi response untuk kasus sukses maupun gagal
+ * - Mencegah regression pada alur akses pengguna di sistem
+ */
 describe('Auth Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
 
   beforeAll(async () => {
+    // Inisialisasi aplikasi NestJS dalam mode testing
     app = await createTestApp();
+
+    // Reset database untuk memastikan kondisi awal selalu bersih dan konsisten
     await cleanupDatabase(getPrisma());
+
+    // Isi database dengan data awal untuk kebutuhan skenario integration
     await seedDatabase(getPrisma());
+
+    // Login sebagai admin untuk mendapatkan access token endpoint protected
     const tokens = await loginAsAdmin(app);
     adminToken = tokens.accessToken;
   });
 
   afterAll(async () => {
+    // Menutup koneksi aplikasi setelah seluruh test selesai dijalankan
     await closeTestApp(app);
   });
 
   // ==================== REGISTER ====================
   describe('POST /api/register', () => {
+    // User baru harus langsung tersedia setelah dibuat
     it('should register a new user successfully', async () => {
       const res = await request(app.getHttpServer() as App)
         .post('/api/register')
@@ -50,6 +67,7 @@ describe('Auth Module (Integration)', () => {
       expect(res.body.user.email).toBe('testuser1@test.com');
     });
 
+    // Coba simpan user duplikat -> harus 409
     it('should reject duplicate username', async () => {
       const res = await request(app.getHttpServer() as App)
         .post('/api/register')
@@ -65,6 +83,7 @@ describe('Auth Module (Integration)', () => {
       expect(res.body).toHaveProperty('path');
     });
 
+    // User yang sama tidak boleh dibuat dua kali -> harus 409
     it('should reject duplicate email', async () => {
       const res = await request(app.getHttpServer() as App)
         .post('/api/register')
@@ -78,6 +97,7 @@ describe('Auth Module (Integration)', () => {
       expect(res.body.statusCode).toBe(409);
     });
 
+    // Data request tidak sesuai aturan -> harus 400
     it('should reject invalid DTO (missing email)', async () => {
       const res = await request(app.getHttpServer() as App)
         .post('/api/register')
@@ -92,6 +112,7 @@ describe('Auth Module (Integration)', () => {
       expect(res.body).toHaveProperty('path');
     });
 
+    // Input tidak valid harus ditolak -> 400
     it('should reject weak password', async () => {
       const res = await request(app.getHttpServer() as App)
         .post('/api/register')
@@ -108,6 +129,7 @@ describe('Auth Module (Integration)', () => {
 
   // ==================== LOGIN ====================
   describe('POST /api/login', () => {
+    // Login dengan kredensial valid harus menghasilkan access token
     it('should login with valid credentials', async () => {
       const res = await request(app.getHttpServer() as App)
         .post('/api/login')
@@ -125,6 +147,7 @@ describe('Auth Module (Integration)', () => {
       expect(res.body.user.roles).toContain('Admin');
     });
 
+    // Login pakai email juga harus berhasil
     it('should login with email', async () => {
       const res = await request(app.getHttpServer() as App)
         .post('/api/login')
@@ -137,6 +160,7 @@ describe('Auth Module (Integration)', () => {
       expect(res.body.accessToken).toBeDefined();
     });
 
+    // Password yang salah tidak boleh lolos
     it('should reject wrong password', async () => {
       await request(app.getHttpServer() as App)
         .post('/api/login')
@@ -147,6 +171,7 @@ describe('Auth Module (Integration)', () => {
         .expect(401);
     });
 
+    // User yang belum terdaftar tidak boleh login
     it('should reject non-existent user', async () => {
       await request(app.getHttpServer() as App)
         .post('/api/login')
@@ -160,6 +185,7 @@ describe('Auth Module (Integration)', () => {
 
   // ==================== PROFILE ====================
   describe('GET /api/profile', () => {
+    // Data user per id harus terbaca dengan benar
     it('should return profile with valid token', async () => {
       const res = await authGet(app, '/api/profile', adminToken).expect(200);
 
@@ -176,12 +202,14 @@ describe('Auth Module (Integration)', () => {
       expect(res.body.isActive).toBe(true);
     });
 
+    // Token tidak valid harus langsung ditolak -> 401
     it('should reject request without token', async () => {
       await request(app.getHttpServer() as App)
         .get('/api/profile')
         .expect(401);
     });
 
+    // Akses tanpa token valid -> harus 401
     it('should reject request with invalid token', async () => {
       await authGet(app, '/api/profile', 'invalid-token-here').expect(401);
     });
@@ -201,6 +229,7 @@ describe('Auth Module (Integration)', () => {
       userToken = tokens.accessToken;
     });
 
+    // Proses verifikasi data harus mengubah status dengan benar
     it('should reject wrong old password', async () => {
       await authPost(app, '/api/change-password', userToken)
         .send({
@@ -211,6 +240,7 @@ describe('Auth Module (Integration)', () => {
         .expect(400);
     });
 
+    // Input tidak valid harus ditolak -> 400
     it('should reject mismatched confirm password', async () => {
       await authPost(app, '/api/change-password', userToken)
         .send({
@@ -221,6 +251,7 @@ describe('Auth Module (Integration)', () => {
         .expect(400);
     });
 
+    // Perubahan data harus konsisten setelah disimpan
     it('should change password successfully', async () => {
       const res = await authPost(app, '/api/change-password', userToken)
         .send({
@@ -240,6 +271,7 @@ describe('Auth Module (Integration)', () => {
 
   // ==================== REFRESH TOKEN ====================
   describe('POST /api/refresh', () => {
+    // Token baru dari refresh harus bisa dipakai
     it('should refresh access token', async () => {
       const tokens = await loginAsAdmin(app);
       const res = await request(app.getHttpServer() as App)
@@ -254,6 +286,7 @@ describe('Auth Module (Integration)', () => {
 
   // ==================== LOGOUT ====================
   describe('POST /api/logout', () => {
+    // Daftar data yang tampil harus sesuai query
     it('should logout and blacklist token', async () => {
       const tokens = await loginAsAdmin(app);
       const tokenToLogout = tokens.accessToken;

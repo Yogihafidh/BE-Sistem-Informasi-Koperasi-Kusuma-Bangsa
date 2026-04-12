@@ -20,6 +20,14 @@ import {
   registerAndLogin,
 } from '../helpers/auth.helper';
 
+/**
+ * Integration test untuk memvalidasi endpoint laporan rekapitulasi bulanan.
+ *
+ * Tujuan:
+ * - Memastikan data ringkasan bulanan dihitung sesuai skenario bisnis
+ * - Memastikan akses endpoint laporan mengikuti aturan otorisasi
+ * - Mencegah regression pada laporan yang dipakai untuk monitoring operasional
+ */
 describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
   let app: INestApplication;
   let prisma: PrismaClient;
@@ -31,12 +39,17 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
   let snapshotId: number;
 
   beforeAll(async () => {
+    // Inisialisasi aplikasi NestJS dalam mode testing
     app = await createTestApp();
     prisma = getPrisma();
 
+    // Reset database untuk memastikan kondisi awal selalu bersih dan konsisten
     await cleanupDatabase(prisma);
+
+    // Isi database dengan data awal untuk kebutuhan skenario integration
     await seedDatabase(prisma);
 
+    // Login sebagai admin untuk mendapatkan access token endpoint protected
     adminToken = (await loginAsAdmin(app)).accessToken;
 
     const adminPegawai = await prisma.pegawai.findFirstOrThrow({
@@ -279,10 +292,12 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
   });
 
   afterAll(async () => {
+    // Menutup koneksi aplikasi setelah seluruh test selesai dijalankan
     await closeTestApp(app);
   });
 
   describe('GET /api/rekapitulasi/bulanan', () => {
+    // Rekap bulanan harus mengembalikan ringkasan dan rasio yang konsisten
     it('should return consistent ringkasan, rasio, and performance metrics for March 2026 dataset', async () => {
       const res = await authGet(
         app,
@@ -373,6 +388,7 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       expect(body.performance.anggota.keterangan).toBe('stagnan');
     });
 
+    // Perubahan transaksi harus langsung tercermin tanpa menunggu cache
     it('should reflect fresh data immediately without cache', async () => {
       const before = await authGet(
         app,
@@ -414,6 +430,7 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       );
     });
 
+    // Keputusan verifikasi permission harus tercermin di data
     it('should reject users without laporan.read permission', async () => {
       const user = await registerAndLogin(app, {
         username: 'rekap-noaccess',
@@ -430,6 +447,7 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
   });
 
   describe('Snapshot Laporan Keuangan', () => {
+    // Pembuatan laporan harus menyimpan data yang valid
     it('should generate laporan keuangan snapshot', async () => {
       const res = await authPost(
         app,
@@ -447,6 +465,7 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       expect(typeof snapshotId).toBe('number');
     });
 
+    // Hasil laporan harus konsisten dengan data sumber
     it('should return snapshot report that is consistent with realtime source at generation period', async () => {
       const realtime = await authGet(
         app,
@@ -482,6 +501,7 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       expect(snapshot.body).toHaveProperty('generatedAt');
     });
 
+    // Hasil laporan harus konsisten dengan data sumber
     it('should finalize laporan keuangan snapshot', async () => {
       const res = await authPost(
         app,
@@ -501,6 +521,7 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       expect(snapshot.body.statusLaporan).toBe('FINAL');
     });
 
+    // Proses verifikasi laporan harus mengubah status dengan benar
     it('should reject regenerate on finalized laporan keuangan period', async () => {
       await authPost(
         app,
@@ -509,6 +530,7 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       ).expect(400);
     });
 
+    // Snapshot laporan harus stabil untuk periode yang sama
     it('should return latest snapshot when periode is omitted', async () => {
       const res = await authGet(
         app,
@@ -522,6 +544,7 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       expect(res.body.statusLaporan).toBe('FINAL');
     });
 
+    // Keputusan verifikasi permission harus tercermin di data
     it('should reject users without laporan.generate permission', async () => {
       const user = await registerAndLogin(app, {
         username: 'snapshot-noaccess',

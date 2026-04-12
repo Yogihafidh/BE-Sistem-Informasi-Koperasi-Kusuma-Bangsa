@@ -16,6 +16,14 @@ import {
 } from '../helpers/auth.helper';
 import { createTestPegawai } from '../helpers/factory.helper';
 
+/**
+ * Integration test untuk memvalidasi alur endpoint modul Nasabah.
+ *
+ * Tujuan:
+ * - Memastikan proses registrasi dan pengelolaan data nasabah berjalan benar
+ * - Memastikan validasi dan kontrol akses endpoint nasabah konsisten
+ * - Mencegah regression pada alur onboarding anggota koperasi
+ */
 describe('Nasabah Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
@@ -26,9 +34,16 @@ describe('Nasabah Module (Integration)', () => {
   let reassignedPegawaiId: number;
 
   beforeAll(async () => {
+    // Inisialisasi aplikasi NestJS dalam mode testing
     app = await createTestApp();
+
+    // Reset database untuk memastikan kondisi awal selalu bersih dan konsisten
     await cleanupDatabase(getPrisma());
+
+    // Isi database dengan data awal untuk kebutuhan skenario integration
     await seedDatabase(getPrisma());
+
+    // Login sebagai admin untuk mendapatkan access token endpoint protected
     const tokens = await loginAsAdmin(app);
     adminToken = tokens.accessToken;
 
@@ -85,12 +100,14 @@ describe('Nasabah Module (Integration)', () => {
   });
 
   afterAll(async () => {
+    // Menutup koneksi aplikasi setelah seluruh test selesai dijalankan
     await closeTestApp(app);
   });
 
   let nasabahId: number;
 
   describe('POST /api/nasabah', () => {
+    // Status nasabah harus bisa diaktifkan dan dinonaktifkan
     it('should create nasabah with status PENDING', async () => {
       // Login as pegawai user with Admin role
       const pegawaiTokens = await loginAs(
@@ -118,6 +135,7 @@ describe('Nasabah Module (Integration)', () => {
       nasabahId = res.body.data.id;
     });
 
+    // Coba simpan nasabah duplikat -> harus 409
     it('should reject duplicate NIK', async () => {
       const pegawaiTokens = await loginAs(
         app,
@@ -140,6 +158,7 @@ describe('Nasabah Module (Integration)', () => {
   });
 
   describe('GET /api/nasabah', () => {
+    // List nasabah harus mengikuti parameter query
     it('should list nasabah with pagination', async () => {
       const res = await authGet(
         app,
@@ -152,6 +171,7 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.pagination).toBeDefined();
     });
 
+    // Status nasabah harus bisa diaktifkan dan dinonaktifkan
     it('should filter nasabah by status PENDING', async () => {
       const res = await authGet(
         app,
@@ -167,6 +187,7 @@ describe('Nasabah Module (Integration)', () => {
       }
     });
 
+    // Admin bisa lihat semua nasabah tanpa filter pegawai
     it('should allow admin to access all nasabah without pegawaiId filter', async () => {
       const res = await authGet(app, '/api/nasabah', adminToken).expect(200);
 
@@ -174,10 +195,12 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.pagination).toBeDefined();
     });
 
+    // Staff wajib kirim pegawaiId saat ambil daftar nasabah -> harus 400
     it('should reject staff without pegawaiId query parameter', async () => {
       await authGet(app, '/api/nasabah', staffToken).expect(400);
     });
 
+    // Staff tidak boleh akses nasabah milik pegawai lain -> harus 403
     it('should reject staff requesting nasabah from another pegawai', async () => {
       await authGet(
         app,
@@ -186,6 +209,7 @@ describe('Nasabah Module (Integration)', () => {
       ).expect(403);
     });
 
+    // Staff boleh lihat nasabah miliknya sendiri lewat pegawaiId
     it('should allow staff requesting nasabah with own pegawaiId', async () => {
       const res = await authGet(
         app,
@@ -197,6 +221,7 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.pagination).toBeDefined();
     });
 
+    // Cari pegawai dengan id yang tidak ada -> harus 404
     it('should return 404 when pegawaiId is not found', async () => {
       await authGet(app, '/api/nasabah?pegawaiId=99999', adminToken).expect(
         404,
@@ -205,6 +230,7 @@ describe('Nasabah Module (Integration)', () => {
   });
 
   describe('GET /api/nasabah/:id', () => {
+    // Detail nasabah yang diminta harus kembali lengkap
     it('should get nasabah detail', async () => {
       const pegawaiTokens = await loginAs(
         app,
@@ -223,12 +249,14 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.data.pegawai).toBeDefined();
     });
 
+    // Cari nasabah dengan id yang tidak ada -> harus 404
     it('should return 404 for non-existent nasabah', async () => {
       await authGet(app, '/api/nasabah/99999', adminToken).expect(404);
     });
   });
 
   describe('POST /api/nasabah/:id/dokumen', () => {
+    // Buat nasabah baru -> proses harus berhasil
     it('should upload KTP + KK + slip gaji in one request', async () => {
       const pegawaiTokens = await loginAs(
         app,
@@ -265,6 +293,7 @@ describe('Nasabah Module (Integration)', () => {
       );
     });
 
+    // Coba simpan nasabah duplikat -> harus 400
     it('should reject duplicate dokumen jenis for same nasabah', async () => {
       const pegawaiTokens = await loginAs(
         app,
@@ -292,6 +321,7 @@ describe('Nasabah Module (Integration)', () => {
   });
 
   describe('PATCH /api/nasabah/:id', () => {
+    // Data nasabah yang diubah harus terbaca di response
     it('should update nasabah data', async () => {
       const res = await authPatch(app, `/api/nasabah/${nasabahId}`, adminToken)
         .send({ alamat: 'Jl. Updated No. 99', pekerjaan: 'PNS' })
@@ -301,6 +331,7 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.data.pekerjaan).toBe('PNS');
     });
 
+    // Perubahan pegawai harus konsisten setelah disimpan
     it('should update pegawai penanggung jawab nasabah', async () => {
       const res = await authPatch(app, `/api/nasabah/${nasabahId}`, adminToken)
         .send({ pegawaiId: reassignedPegawaiId })
@@ -310,6 +341,7 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.data.pegawai.id).toBe(reassignedPegawaiId);
     });
 
+    // Pegawai tidak ditemukan -> harus 404
     it('should return 404 when pegawaiId does not exist', async () => {
       await authPatch(app, `/api/nasabah/${nasabahId}`, adminToken)
         .send({ pegawaiId: 99999 })
@@ -318,6 +350,7 @@ describe('Nasabah Module (Integration)', () => {
   });
 
   describe('PATCH /api/nasabah/:id/verifikasi', () => {
+    // Keputusan verifikasi nasabah harus tercermin di data
     it('should verify nasabah as AKTIF and auto-create rekening simpanan', async () => {
       const res = await authPatch(
         app,
@@ -345,6 +378,7 @@ describe('Nasabah Module (Integration)', () => {
       expect(jenisList).toContain('SUKARELA');
     });
 
+    // Nasabah yang sudah diverifikasi masih bisa diverifikasi ulang
     it('should allow re-verification of already verified nasabah', async () => {
       const res = await authPatch(
         app,
@@ -382,6 +416,7 @@ describe('Nasabah Module (Integration)', () => {
       pendingNasabahId = res.body.data.id;
     });
 
+    // Keputusan verifikasi nasabah harus tercermin di data
     it('should reject nasabah as DITOLAK', async () => {
       const res = await authPatch(
         app,
@@ -396,6 +431,7 @@ describe('Nasabah Module (Integration)', () => {
   });
 
   describe('PATCH /api/nasabah/:id/status', () => {
+    // Perubahan status nasabah wajib tersimpan
     it('should update status to NONAKTIF', async () => {
       const res = await authPatch(
         app,
@@ -408,6 +444,7 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.data.status).toBe('NONAKTIF');
     });
 
+    // Status nasabah harus bisa diaktifkan dan dinonaktifkan
     it('should re-activate to AKTIF', async () => {
       const res = await authPatch(
         app,

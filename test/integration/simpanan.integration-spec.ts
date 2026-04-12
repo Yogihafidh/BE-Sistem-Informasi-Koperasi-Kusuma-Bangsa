@@ -15,6 +15,14 @@ import {
 } from '../helpers/auth.helper';
 import { createFullNasabah } from '../helpers/factory.helper';
 
+/**
+ * Integration test untuk memvalidasi endpoint modul Simpanan.
+ *
+ * Tujuan:
+ * - Memastikan transaksi setoran dan penarikan memengaruhi saldo dengan benar
+ * - Memastikan rekening simpanan nasabah dapat diakses sesuai aturan
+ * - Mencegah regression pada alur simpanan pokok, wajib, dan sukarela
+ */
 describe('Simpanan Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
@@ -36,9 +44,16 @@ describe('Simpanan Module (Integration)', () => {
   };
 
   beforeAll(async () => {
+    // Inisialisasi aplikasi NestJS dalam mode testing
     app = await createTestApp();
+
+    // Reset database untuk memastikan kondisi awal selalu bersih dan konsisten
     await cleanupDatabase(getPrisma());
+
+    // Isi database dengan data awal untuk kebutuhan skenario integration
     await seedDatabase(getPrisma());
+
+    // Login sebagai admin untuk mendapatkan access token endpoint protected
     const tokens = await loginAsAdmin(app);
     adminToken = tokens.accessToken;
 
@@ -58,10 +73,12 @@ describe('Simpanan Module (Integration)', () => {
   });
 
   afterAll(async () => {
+    // Menutup koneksi aplikasi setelah seluruh test selesai dijalankan
     await closeTestApp(app);
   });
 
   describe('GET /api/simpanan/nasabah/:nasabahId', () => {
+    // Ambil daftar nasabah dengan filter dan pagination
     it('should list 3 rekening simpanan for verified nasabah', async () => {
       const res = await authGet(
         app,
@@ -72,12 +89,14 @@ describe('Simpanan Module (Integration)', () => {
       expect(res.body.data).toHaveLength(3);
     });
 
+    // Cari nasabah dengan id yang tidak ada -> harus 404
     it('should return 404 for non-existent nasabah', async () => {
       await authGet(app, '/api/simpanan/nasabah/99999', adminToken).expect(404);
     });
   });
 
   describe('POST /api/simpanan/rekening/:id/setoran', () => {
+    // Setoran ke rekening sukarela -> saldo harus bertambah
     it('should process setoran on SUKARELA rekening', async () => {
       const res = await authPost(
         app,
@@ -94,6 +113,7 @@ describe('Simpanan Module (Integration)', () => {
       expect(res.body.data).toHaveProperty('nominal');
     });
 
+    // Perubahan rekening simpanan harus konsisten setelah disimpan
     it('should update saldo after setoran', async () => {
       const res = await authGet(
         app,
@@ -176,6 +196,7 @@ describe('Simpanan Module (Integration)', () => {
         .expect(400);
     });
 
+    // Payload yang salah format tidak boleh diproses -> 400
     it('should reject invalid nominal', async () => {
       await authPost(
         app,
@@ -189,6 +210,7 @@ describe('Simpanan Module (Integration)', () => {
         .expect(400);
     });
 
+    // Data request tidak sesuai aturan -> harus 400
     it('should return 400 for rekening id outside db int range', async () => {
       await authPost(
         app,
@@ -204,6 +226,7 @@ describe('Simpanan Module (Integration)', () => {
   });
 
   describe('POST /api/simpanan/rekening/:id/penarikan', () => {
+    // Penarikan dengan saldo cukup -> transaksi harus berhasil
     it('should process penarikan when saldo sufficient', async () => {
       await authPost(
         app,
@@ -265,6 +288,7 @@ describe('Simpanan Module (Integration)', () => {
         .expect(201);
     });
 
+    // Payload yang salah format tidak boleh diproses -> 400
     it('should reject penarikan exceeding saldo', async () => {
       await authPost(
         app,
@@ -280,6 +304,7 @@ describe('Simpanan Module (Integration)', () => {
   });
 
   describe('GET /api/simpanan/rekening/:id/transaksi', () => {
+    // Ambil daftar rekening simpanan dengan filter dan pagination
     it('should list transaksi history with cursor pagination', async () => {
       const res = await authGet(
         app,
@@ -294,6 +319,7 @@ describe('Simpanan Module (Integration)', () => {
   });
 
   describe('DELETE /api/simpanan/rekening/:id', () => {
+    // Coba soft delete saat saldo masih ada -> harus ditolak
     it('should reject soft-delete when saldo is still greater than zero', async () => {
       await authDelete(
         app,
@@ -302,6 +328,7 @@ describe('Simpanan Module (Integration)', () => {
       ).expect(400);
     });
 
+    // Soft delete rekening saldo nol -> data tidak muncul lagi di list
     it('should soft-delete rekening with zero saldo', async () => {
       const { nasabah, rekeningList } = await createFullNasabah(
         app,

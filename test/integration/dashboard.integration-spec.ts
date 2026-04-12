@@ -19,20 +19,36 @@ import {
   createTestPinjaman,
 } from '../helpers/factory.helper';
 
+/**
+ * Integration test untuk memvalidasi kontrak endpoint dashboard koperasi.
+ *
+ * Tujuan:
+ * - Memastikan struktur response dashboard sesuai kontrak terbaru
+ * - Memastikan ringkasan data utama dapat diakses dengan benar
+ * - Mencegah regression pada endpoint agregasi data lintas modul
+ */
 describe('Dashboard Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
   const noAccessPassword = ['No', 'Access', '123', '!'].join('');
 
   beforeAll(async () => {
+    // Inisialisasi aplikasi NestJS dalam mode testing
     app = await createTestApp();
+
+    // Reset database untuk memastikan kondisi awal selalu bersih dan konsisten
     await cleanupDatabase(getPrisma());
+
+    // Isi database dengan data awal untuk kebutuhan skenario integration
     await seedDatabase(getPrisma());
+
+    // Login sebagai admin untuk mendapatkan access token endpoint protected
     const tokens = await loginAsAdmin(app);
     adminToken = tokens.accessToken;
   });
 
   afterAll(async () => {
+    // Menutup koneksi aplikasi setelah seluruh test selesai dijalankan
     await closeTestApp(app);
   });
 
@@ -74,6 +90,7 @@ describe('Dashboard Module (Integration)', () => {
   }
 
   describe('GET /api/dashboard', () => {
+    // Data dashboard wajib mengikuti kontrak response
     it('should return response following new dashboard contract', async () => {
       const body = await getDashboard();
       const rawBody = body as unknown as Record<string, unknown>;
@@ -112,12 +129,14 @@ describe('Dashboard Module (Integration)', () => {
       );
     });
 
+    // Dashboard harus mencerminkan kondisi data saat ini
     it('should return dashboard without period query params', async () => {
       await authGet(app, '/api/dashboard', adminToken).expect(200);
     });
   });
 
   describe('Authorization', () => {
+    // Keputusan verifikasi permission harus tercermin di data
     it('should reject users without dashboard.read permission', async () => {
       const user = await registerAndLogin(app, {
         username: 'dashnoacccess',
@@ -134,6 +153,7 @@ describe('Dashboard Module (Integration)', () => {
       await clearTestCache();
     });
 
+    // Mutasi transaksi harus langsung memengaruhi angka dashboard
     it('should reflect latest data immediately after transaction mutation', async () => {
       const { rekeningList } = await createFullNasabah(app, adminToken);
       const sukarela = rekeningList.find(
@@ -159,6 +179,7 @@ describe('Dashboard Module (Integration)', () => {
       );
     });
 
+    // Top outstanding harus memuat nama anggota dan panjang tren tetap konsisten
     it('should include namaAnggota in topOutstanding and keep rolling trends fixed-length', async () => {
       const { nasabah, rekeningList } = await createFullNasabah(
         app,
@@ -218,6 +239,7 @@ describe('Dashboard Module (Integration)', () => {
       ).toBe(true);
     });
 
+    // Total anggota di dashboard harus sinkron dengan data nasabah
     it('should keep ringkasan utama anggota totals consistent with nasabah endpoint', async () => {
       const dashboard = await getDashboard();
       const nasabahAll = await authGet(app, '/api/nasabah', adminToken).expect(
@@ -238,6 +260,7 @@ describe('Dashboard Module (Integration)', () => {
       expect(dashboard.ringkasanUtama.anggotaAktif).toBe(totalNasabahAktif);
     });
 
+    // Data setting yang diubah harus terbaca di response
     it('should follow dashboard trendMonths setting updates', async () => {
       await authPut(app, '/api/settings/dashboard.trendMonths', adminToken)
         .send({ value: '3' })
