@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  JenisSimpanan,
   JenisTransaksi,
   PinjamanStatus,
   Prisma,
@@ -31,6 +32,20 @@ export class PinjamanRepository {
       select: {
         id: true,
         status: true,
+      },
+    });
+  }
+
+  findRekeningPokokByNasabahId(nasabahId: number) {
+    return this.prisma.rekeningSimpanan.findFirst({
+      where: {
+        nasabahId,
+        jenisSimpanan: JenisSimpanan.POKOK,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        saldoBerjalan: true,
       },
     });
   }
