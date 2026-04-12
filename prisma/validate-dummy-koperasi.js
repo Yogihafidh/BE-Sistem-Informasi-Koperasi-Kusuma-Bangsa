@@ -274,6 +274,7 @@ async function main() {
     select: {
       id: true,
       jumlahPinjaman: true,
+      totalPengembalian: true,
       sisaPinjaman: true,
       status: true,
     },
@@ -295,7 +296,8 @@ async function main() {
     });
 
     const totalAngsuran = toNumber(angsuranAgg._sum.nominal);
-    const expectedSisa = toNumber(loan.jumlahPinjaman) - totalAngsuran;
+    const expectedSisaRaw = toNumber(loan.totalPengembalian) - totalAngsuran;
+    const expectedSisa = expectedSisaRaw < 0 ? 0 : expectedSisaRaw;
     const currentSisa = toNumber(loan.sisaPinjaman);
 
     if (expectedSisa !== currentSisa) {
@@ -316,7 +318,7 @@ async function main() {
   // ALUR 18: Assert konsistensi saldo pinjaman dan status pinjaman.
   check(
     invalidLoanBalance === 0,
-    'Sisa pinjaman konsisten terhadap jumlahPinjaman - totalAngsuran',
+    'Sisa pinjaman konsisten terhadap totalPengembalian - totalAngsuran',
     `loan tidak konsisten: ${invalidLoanBalance}`,
   );
 
