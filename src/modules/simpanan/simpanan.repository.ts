@@ -44,7 +44,7 @@ export class SimpananRepository {
   listRekeningByNasabah(nasabahId: number) {
     return this.prisma.rekeningSimpanan.findMany({
       where: { nasabahId, deletedAt: null },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
