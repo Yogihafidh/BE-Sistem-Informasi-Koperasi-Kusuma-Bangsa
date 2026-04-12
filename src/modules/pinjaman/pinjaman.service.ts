@@ -102,6 +102,7 @@ export class PinjamanService {
       maxLoanAmount,
       defaultInterestPercent,
       autoApprovalLimit,
+      fixedPokokNominal,
     ] = await Promise.all([
       this.settingsService.getNumber(SETTING_KEYS.LOAN_MAX_TENOR_MONTHS),
       this.settingsService.getNumber(SETTING_KEYS.LOAN_MIN_TENOR_MONTHS),
@@ -110,6 +111,7 @@ export class PinjamanService {
         SETTING_KEYS.LOAN_DEFAULT_INTEREST_PERCENT,
       ),
       this.settingsService.getNumber(SETTING_KEYS.LOAN_AUTO_APPROVAL_LIMIT),
+      this.settingsService.getNumber(SETTING_KEYS.SAVINGS_MIN_INITIAL_DEPOSIT),
     ]);
 
     // 2. Validasi melebihi batas tenor
@@ -151,12 +153,26 @@ export class PinjamanService {
       throw new BadRequestException('Nasabah tidak aktif');
     }
 
+    const rekeningPokok =
+      await this.pinjamanRepository.findRekeningPokokByNasabahId(dto.nasabahId);
+    if (
+      !rekeningPokok ||
+      rekeningPokok.saldoBerjalan.lessThan(
+        new Prisma.Decimal(fixedPokokNominal),
+      )
+    ) {
+      throw new BadRequestException(
+        'Pengajuan pinjaman tidak diperbolehkan karena simpanan pokok belum dibayar',
+      );
+    }
+
+    // 8. Hitung parameter pinjaman
     const totalBungaFlat =
       (dto.jumlahPinjaman * bungaPersen * dto.tenorBulan) / 100;
     const totalPengembalian = dto.jumlahPinjaman + totalBungaFlat;
     const angsuranPerBulan = totalPengembalian / dto.tenorBulan;
 
-    // 8. Proses create pinjaman
+    // 9. Proses create pinjaman
     const pinjaman = await this.prisma.$transaction(async (tx) => {
       // Create pinjaman
       const created = await this.pinjamanRepository.createPinjaman(

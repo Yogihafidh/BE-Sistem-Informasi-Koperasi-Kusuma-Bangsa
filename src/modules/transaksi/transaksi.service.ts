@@ -73,10 +73,6 @@ export class TransaksiService {
       throw new NotFoundException('Nasabah tidak ditemukan');
     }
 
-    if (nasabah.status !== NasabahStatus.AKTIF) {
-      throw new BadRequestException('Nasabah tidak aktif');
-    }
-
     // 4. Menentukan apakah transaksi butuh rekening atau pinjaman
     const requiresRekening =
       dto.jenisTransaksi === JenisTransaksi.SETORAN ||
@@ -125,6 +121,18 @@ export class TransaksiService {
       : null;
     if (requiresPinjaman && !pinjaman) {
       throw new NotFoundException('Pinjaman tidak ditemukan');
+    }
+
+    const isSavingsWithdrawalForNonActiveNasabah =
+      dto.jenisTransaksi === JenisTransaksi.PENARIKAN &&
+      Boolean(rekening) &&
+      nasabah.status === NasabahStatus.NONAKTIF;
+
+    if (
+      nasabah.status !== NasabahStatus.AKTIF &&
+      !isSavingsWithdrawalForNonActiveNasabah
+    ) {
+      throw new BadRequestException('Nasabah tidak aktif');
     }
 
     // Dapatkan tanggal transaksi untuk validasi keterlambatan dan batas harian

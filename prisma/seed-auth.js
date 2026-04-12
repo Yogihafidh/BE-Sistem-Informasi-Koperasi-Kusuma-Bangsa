@@ -106,13 +106,13 @@ async function seed() {
         key: 'savings.minInitialDeposit',
         value: '50000',
         valueType: 'NUMBER',
-        description: 'Setoran awal minimum saat membuka simpanan',
+        description: 'Nominal tetap simpanan pokok (dibayar 1x di awal)',
       },
       {
         key: 'savings.minMonthlyDeposit',
         value: '25000',
         valueType: 'NUMBER',
-        description: 'Setoran bulanan minimum simpanan wajib',
+        description: 'Nominal tetap simpanan wajib per bulan',
       },
       {
         key: 'savings.allowWithdrawalIfLoanActive',
@@ -263,6 +263,7 @@ async function seed() {
       'pinjaman.cairkan',
       'pinjaman.angsuran',
       'laporan.read',
+      'dashboard.read',
     ];
 
     const kasirPermissions = await prisma.permission.findMany({
@@ -392,7 +393,7 @@ async function seed() {
     ];
 
     for (const item of defaultUsers) {
-      // ALUR 6 HASH ALL PASSWORD USERS 
+      // ALUR 6 HASH ALL PASSWORD USERS
       const hashedPassword = await bcrypt.hash(item.password, 10);
 
       // ALUR 5 CREATE DEFAULT USERS

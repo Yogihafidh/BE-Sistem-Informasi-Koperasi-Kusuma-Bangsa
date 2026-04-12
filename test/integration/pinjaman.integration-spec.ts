@@ -28,8 +28,21 @@ describe('Pinjaman Module (Integration)', () => {
     adminToken = tokens.accessToken;
 
     // Create verified nasabah
-    const { nasabah } = await createFullNasabah(app, adminToken);
+    const { nasabah, rekeningList } = await createFullNasabah(app, adminToken);
     nasabahId = nasabah.id;
+
+    const rekeningPokok = rekeningList.find(
+      (item: { jenisSimpanan: string }) => item.jenisSimpanan === 'POKOK',
+    );
+    expect(rekeningPokok).toBeDefined();
+
+    await authPost(
+      app,
+      `/api/simpanan/rekening/${rekeningPokok!.id}/setoran`,
+      adminToken,
+    )
+      .send({ nominal: 50000, metodePembayaran: 'CASH' })
+      .expect(201);
   });
 
   afterAll(async () => {

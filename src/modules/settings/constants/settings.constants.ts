@@ -62,13 +62,13 @@ export const DEFAULT_SETTINGS: Array<{
     key: SETTING_KEYS.SAVINGS_MIN_INITIAL_DEPOSIT,
     value: '50000',
     valueType: SETTING_VALUE_TYPE.NUMBER,
-    description: 'Setoran awal minimum saat membuka simpanan',
+    description: 'Nominal tetap simpanan pokok (dibayar 1x di awal)',
   },
   {
     key: SETTING_KEYS.SAVINGS_MIN_MONTHLY_DEPOSIT,
     value: '25000',
     valueType: SETTING_VALUE_TYPE.NUMBER,
-    description: 'Setoran bulanan minimum simpanan wajib',
+    description: 'Nominal tetap simpanan wajib per bulan',
   },
   {
     key: SETTING_KEYS.SAVINGS_ALLOW_WITHDRAWAL_IF_LOAN_ACTIVE,

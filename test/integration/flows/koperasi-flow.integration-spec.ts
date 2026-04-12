@@ -41,6 +41,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
 
   let pegawaiUserId: number;
   let nasabahId: number;
+  let rekeningPokokId: number;
   let rekeningSukarelaId: number;
   let pinjamanId: number;
 
@@ -99,9 +100,20 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     rekeningSukarelaId = rekeningRes.body.data.find(
       (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'SUKARELA',
     )!.id;
+    rekeningPokokId = rekeningRes.body.data.find(
+      (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'POKOK',
+    )!.id;
   });
 
-  it('Step 6: Deposit (setoran) into SUKARELA rekening', async () => {
+  it('Step 6: Pay POKOK and deposit into SUKARELA rekening', async () => {
+    await authPost(
+      app,
+      `/api/simpanan/rekening/${rekeningPokokId}/setoran`,
+      adminToken,
+    )
+      .send({ nominal: 50000, metodePembayaran: 'CASH' })
+      .expect(201);
+
     const res = await authPost(
       app,
       `/api/simpanan/rekening/${rekeningSukarelaId}/setoran`,

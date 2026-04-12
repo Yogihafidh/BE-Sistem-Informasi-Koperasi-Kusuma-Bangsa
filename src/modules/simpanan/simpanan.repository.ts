@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { PinjamanStatus, Prisma, PrismaClient } from '@prisma/client';
+import {
+  JenisTransaksi,
+  PinjamanStatus,
+  Prisma,
+  PrismaClient,
+} from '@prisma/client';
 
 @Injectable()
 export class SimpananRepository {
@@ -52,6 +57,24 @@ export class SimpananRepository {
             id: true,
             status: true,
           },
+        },
+      },
+    });
+  }
+
+  countSetoranByRekeningInRange(args: {
+    rekeningId: number;
+    tanggalFrom: Date;
+    tanggalTo: Date;
+  }): Promise<number> {
+    return this.prisma.transaksi.count({
+      where: {
+        deletedAt: null,
+        rekeningSimpananId: args.rekeningId,
+        jenisTransaksi: JenisTransaksi.SETORAN,
+        tanggal: {
+          gte: args.tanggalFrom,
+          lte: args.tanggalTo,
         },
       },
     });

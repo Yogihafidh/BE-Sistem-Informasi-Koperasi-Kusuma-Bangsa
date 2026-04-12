@@ -83,22 +83,14 @@ export class SimpananService {
       throw new BadRequestException('Nasabah tidak aktif');
     }
 
-    // 4. Validasi nominal setoran
-    const isInitialDeposit = rekening.saldoBerjalan.lessThanOrEqualTo(0);
-    if (isInitialDeposit && dto.nominal < minInitialDeposit) {
-      throw new BadRequestException(
-        `Setoran awal minimum adalah ${minInitialDeposit}`,
-      );
-    }
-
-    // 5. Validasi setoran bulanan untuk jenis simpanan wajib
-    const isMandatoryMonthlyDeposit =
-      rekening.jenisSimpanan === JenisSimpanan.WAJIB && !isInitialDeposit;
-    if (isMandatoryMonthlyDeposit && dto.nominal < minMonthlyDeposit) {
-      throw new BadRequestException(
-        `Setoran bulanan minimum adalah ${minMonthlyDeposit}`,
-      );
-    }
+    await this.validateSetoranRules({
+      rekening,
+      rekeningId,
+      nominal: dto.nominal,
+      tanggal: dto.tanggal,
+      fixedPokokNominal: minInitialDeposit,
+      fixedWajibNominal: minMonthlyDeposit,
+    });
 
     return this.transaksiService.createTransaksi(
       {
@@ -142,9 +134,30 @@ export class SimpananService {
       throw new NotFoundException('Rekening simpanan tidak ditemukan');
     }
 
-    // 4. Validasi nasabah harus aktif
-    if (rekening.nasabah.status !== NasabahStatus.AKTIF) {
-      throw new BadRequestException('Nasabah tidak aktif');
+    // 4. Validasi status nasabah dan jenis simpanan saat penarikan
+    const isNasabahAktif = rekening.nasabah.status === NasabahStatus.AKTIF;
+    const isNasabahNonAktif =
+      rekening.nasabah.status === NasabahStatus.NONAKTIF;
+
+    if (
+      rekening.jenisSimpanan === JenisSimpanan.POKOK ||
+      rekening.jenisSimpanan === JenisSimpanan.WAJIB
+    ) {
+      if (isNasabahAktif) {
+        throw new BadRequestException(
+          'Simpanan pokok dan wajib hanya dapat ditarik saat anggota keluar',
+        );
+      }
+
+      if (!isNasabahNonAktif) {
+        throw new BadRequestException(
+          'Penarikan simpanan hanya dapat diproses untuk status nasabah yang valid',
+        );
+      }
+    } else if (!isNasabahAktif && !isNasabahNonAktif) {
+      throw new BadRequestException(
+        'Penarikan simpanan hanya dapat diproses untuk status nasabah yang valid',
+      );
     }
 
     // 5. Validasi penarikan tidak diizinkan jika nasabah memiliki pinjaman aktif (jika setting tidak mengizinkan)
@@ -269,5 +282,78 @@ export class SimpananService {
     ) {
       throw new BadRequestException(`ID ${entity.toLowerCase()} tidak valid`);
     }
+  }
+
+  private async validateSetoranRules(args: {
+    rekening: {
+      id: number;
+      jenisSimpanan: JenisSimpanan;
+      saldoBerjalan: Prisma.Decimal;
+    };
+    rekeningId: number;
+    nominal: number;
+    tanggal?: string;
+    fixedPokokNominal: number;
+    fixedWajibNominal: number;
+  }) {
+    if (args.rekening.jenisSimpanan === JenisSimpanan.POKOK) {
+      if (!args.rekening.saldoBerjalan.lessThanOrEqualTo(0)) {
+        throw new BadRequestException(
+          'Simpanan pokok hanya dapat dibayar satu kali saat awal keanggotaan',
+        );
+      }
+
+      if (args.nominal !== args.fixedPokokNominal) {
+        throw new BadRequestException(
+          `Nominal simpanan pokok harus tepat ${args.fixedPokokNominal}`,
+        );
+      }
+      return;
+    }
+
+    if (args.rekening.jenisSimpanan !== JenisSimpanan.WAJIB) {
+      return;
+    }
+
+    if (args.nominal !== args.fixedWajibNominal) {
+      throw new BadRequestException(
+        `Nominal simpanan wajib harus tepat ${args.fixedWajibNominal} per bulan`,
+      );
+    }
+
+    const transaksiDate = args.tanggal ? new Date(args.tanggal) : new Date();
+    const { monthStart, monthEnd } = this.getUtcMonthRange(transaksiDate);
+
+    const monthlySetoranCount =
+      await this.simpananRepository.countSetoranByRekeningInRange({
+        rekeningId: args.rekeningId,
+        tanggalFrom: monthStart,
+        tanggalTo: monthEnd,
+      });
+
+    if (monthlySetoranCount > 0) {
+      throw new BadRequestException(
+        'Simpanan wajib bulan ini sudah dibayarkan',
+      );
+    }
+  }
+
+  private getUtcMonthRange(date: Date) {
+    return {
+      monthStart: new Date(
+        Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0, 0),
+      ),
+      monthEnd: new Date(
+        Date.UTC(
+          date.getUTCFullYear(),
+          date.getUTCMonth() + 1,
+          0,
+          23,
+          59,
+          59,
+          999,
+        ),
+      ),
+    };
   }
 }

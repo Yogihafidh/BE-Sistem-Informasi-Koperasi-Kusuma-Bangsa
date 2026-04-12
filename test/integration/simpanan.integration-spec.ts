@@ -10,6 +10,7 @@ import {
   loginAsAdmin,
   authDelete,
   authGet,
+  authPatch,
   authPost,
 } from '../helpers/auth.helper';
 import { createFullNasabah } from '../helpers/factory.helper';
@@ -19,6 +20,16 @@ describe('Simpanan Module (Integration)', () => {
   let adminToken: string;
   let nasabahId: number;
   let rekeningSukarela: {
+    id: number;
+    jenisSimpanan: string;
+    saldoBerjalan: string;
+  };
+  let rekeningPokok: {
+    id: number;
+    jenisSimpanan: string;
+    saldoBerjalan: string;
+  };
+  let rekeningWajib: {
     id: number;
     jenisSimpanan: string;
     saldoBerjalan: string;
@@ -37,6 +48,12 @@ describe('Simpanan Module (Integration)', () => {
 
     rekeningSukarela = rekeningList.find(
       (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'SUKARELA',
+    )!;
+    rekeningPokok = rekeningList.find(
+      (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'POKOK',
+    )!;
+    rekeningWajib = rekeningList.find(
+      (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'WAJIB',
     )!;
   });
 
@@ -91,6 +108,72 @@ describe('Simpanan Module (Integration)', () => {
 
       const saldo = Number.parseFloat(rekening.saldoBerjalan);
       expect(saldo).toBeGreaterThanOrEqual(500000);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningPokok.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 10000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningPokok.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 50000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(201);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningPokok.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 50000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningWajib.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 10000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningWajib.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 25000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(201);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningWajib.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 25000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
     });
 
     it('should reject invalid nominal', async () => {
@@ -122,6 +205,17 @@ describe('Simpanan Module (Integration)', () => {
 
   describe('POST /api/simpanan/rekening/:id/penarikan', () => {
     it('should process penarikan when saldo sufficient', async () => {
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningPokok.id}/penarikan`,
+        adminToken,
+      )
+        .send({
+          nominal: 10000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+
       // First deposit enough
       await authPost(
         app,
@@ -143,6 +237,32 @@ describe('Simpanan Module (Integration)', () => {
         .expect(201);
 
       expect(res.body.message).toContain('berhasil');
+
+      await authPatch(app, `/api/nasabah/${nasabahId}/status`, adminToken)
+        .send({ status: 'NONAKTIF' })
+        .expect(200);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningPokok.id}/penarikan`,
+        adminToken,
+      )
+        .send({
+          nominal: 50000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(201);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningWajib.id}/penarikan`,
+        adminToken,
+      )
+        .send({
+          nominal: 25000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(201);
     });
 
     it('should reject penarikan exceeding saldo', async () => {

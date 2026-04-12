@@ -160,7 +160,23 @@ describe('Dashboard Module (Integration)', () => {
     });
 
     it('should include namaAnggota in topOutstanding and keep rolling trends fixed-length', async () => {
-      const { nasabah } = await createFullNasabah(app, adminToken);
+      const { nasabah, rekeningList } = await createFullNasabah(
+        app,
+        adminToken,
+      );
+      const rekeningPokok = rekeningList.find(
+        (item: { jenisSimpanan: string }) => item.jenisSimpanan === 'POKOK',
+      );
+      expect(rekeningPokok).toBeDefined();
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningPokok!.id}/setoran`,
+        adminToken,
+      )
+        .send({ nominal: 50000, metodePembayaran: 'CASH' })
+        .expect(201);
+
       const pinjaman = await createTestPinjaman(app, adminToken, nasabah.id, {
         jumlahPinjaman: 2000000,
         tenorBulan: 6,
