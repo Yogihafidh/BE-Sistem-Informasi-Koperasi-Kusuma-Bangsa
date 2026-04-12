@@ -19,19 +19,35 @@ import {
 import request from 'supertest';
 import { App } from 'supertest/types';
 
+/**
+ * Integration test untuk memvalidasi RBAC (role-based access control) pada modul Auth.
+ *
+ * Tujuan:
+ * - Memastikan CRUD role dan permission berjalan sesuai aturan
+ * - Memastikan assignment role-permission diterapkan dengan benar
+ * - Mencegah regression pada kontrol akses endpoint protected
+ */
 describe('Auth RBAC (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
 
   beforeAll(async () => {
+    // Inisialisasi aplikasi NestJS dalam mode testing
     app = await createTestApp();
+
+    // Reset database untuk memastikan kondisi awal selalu bersih dan konsisten
     await cleanupDatabase(getPrisma());
+
+    // Isi database dengan data awal untuk kebutuhan skenario integration
     await seedDatabase(getPrisma());
+
+    // Login sebagai admin untuk mendapatkan access token endpoint protected
     const tokens = await loginAsAdmin(app);
     adminToken = tokens.accessToken;
   });
 
   afterAll(async () => {
+    // Menutup koneksi aplikasi setelah seluruh test selesai dijalankan
     await closeTestApp(app);
   });
 
@@ -39,6 +55,7 @@ describe('Auth RBAC (Integration)', () => {
   describe('Roles CRUD', () => {
     let createdRoleId: number;
 
+    // Buat role baru -> proses harus berhasil
     it('POST /api/roles — should create a new role', async () => {
       const res = await authPost(app, '/api/roles', adminToken)
         .send({ name: 'TestRole', description: 'Role for testing' })
@@ -50,12 +67,14 @@ describe('Auth RBAC (Integration)', () => {
       createdRoleId = res.body.role.id;
     });
 
+    // Coba simpan role duplikat -> harus 409
     it('POST /api/roles — should reject duplicate role name', async () => {
       await authPost(app, '/api/roles', adminToken)
         .send({ name: 'TestRole' })
         .expect(409);
     });
 
+    // List role harus mengikuti parameter query
     it('GET /api/roles — should list all roles', async () => {
       const res = await authGet(app, '/api/roles', adminToken).expect(200);
 
@@ -63,6 +82,7 @@ describe('Auth RBAC (Integration)', () => {
       expect(res.body.data.length).toBeGreaterThanOrEqual(5); // 4 seeded + 1 created
     });
 
+    // Detail role yang diminta harus kembali lengkap
     it('GET /api/roles/:id — should get role by id', async () => {
       const res = await authGet(
         app,
@@ -73,6 +93,7 @@ describe('Auth RBAC (Integration)', () => {
       expect(res.body.data.name).toBe('TestRole');
     });
 
+    // Perubahan role harus konsisten setelah disimpan
     it('PUT /api/roles/:id — should update role', async () => {
       const res = await authPut(app, `/api/roles/${createdRoleId}`, adminToken)
         .send({ name: 'UpdatedRole' })
@@ -81,6 +102,7 @@ describe('Auth RBAC (Integration)', () => {
       expect(res.body.role.name).toBe('UpdatedRole');
     });
 
+    // Hapus role sesuai aturan bisnis
     it('DELETE /api/roles/:id — should delete role', async () => {
       const res = await authDelete(
         app,
@@ -99,6 +121,7 @@ describe('Auth RBAC (Integration)', () => {
   describe('Permissions CRUD', () => {
     let createdPermId: number;
 
+    // Permission baru harus langsung tersedia setelah dibuat
     it('POST /api/permissions — should create permission', async () => {
       const res = await authPost(app, '/api/permissions', adminToken)
         .send({ code: 'test.permission', description: 'Test perm' })
@@ -108,12 +131,14 @@ describe('Auth RBAC (Integration)', () => {
       createdPermId = res.body.permission.id;
     });
 
+    // Data permission duplikat tidak boleh lolos -> harus 409
     it('POST /api/permissions — should reject duplicate code', async () => {
       await authPost(app, '/api/permissions', adminToken)
         .send({ code: 'test.permission' })
         .expect(409);
     });
 
+    // Ambil daftar permission dengan filter dan pagination
     it('GET /api/permissions — should list all permissions', async () => {
       const res = await authGet(app, '/api/permissions', adminToken).expect(
         200,
@@ -123,6 +148,7 @@ describe('Auth RBAC (Integration)', () => {
       expect(res.body.data.length).toBeGreaterThanOrEqual(36); // 36 seeded
     });
 
+    // Saat permission dihapus, data terkait harus ikut konsisten
     it('DELETE /api/permissions/:id — should delete permission', async () => {
       await authDelete(
         app,
@@ -143,6 +169,7 @@ describe('Auth RBAC (Integration)', () => {
       testRoleId = res.body.role.id;
     });
 
+    // Penugasan role harus tersimpan dengan benar
     it('should assign permissions to role', async () => {
       const permsRes = await authGet(
         app,
@@ -164,6 +191,7 @@ describe('Auth RBAC (Integration)', () => {
       expect(res.body.message).toContain('berhasil');
     });
 
+    // Penugasan role harus tersimpan dengan benar
     it('should verify role has assigned permissions', async () => {
       const res = await authGet(
         app,
@@ -173,6 +201,7 @@ describe('Auth RBAC (Integration)', () => {
       expect(res.body.data.permissions.length).toBe(2);
     });
 
+    // Hapus role sesuai aturan bisnis
     it('should remove permission from role', async () => {
       const roleRes = await authGet(
         app,
@@ -221,6 +250,7 @@ describe('Auth RBAC (Integration)', () => {
       testUserId = result.userId;
     });
 
+    // Assign relasi role -> hak akses harus langsung berlaku
     it('should assign roles to user', async () => {
       const rolesRes = await authGet(app, '/api/roles', adminToken).expect(200);
       const staffRole = rolesRes.body.data.find(
@@ -238,6 +268,7 @@ describe('Auth RBAC (Integration)', () => {
       expect(res.body.message).toContain('berhasil');
     });
 
+    // Role dan permission user harus tampil setelah assignment
     it('should get user roles', async () => {
       const res = await authGet(
         app,
@@ -251,6 +282,7 @@ describe('Auth RBAC (Integration)', () => {
       expect(res.body.data.permissions).toBeInstanceOf(Array);
     });
 
+    // Hapus role sesuai aturan bisnis
     it('should remove role from user', async () => {
       const userRoles = await authGet(
         app,
@@ -283,6 +315,7 @@ describe('Auth RBAC (Integration)', () => {
 
   // ==================== GUARD TESTS ====================
   describe('Authorization Guards', () => {
+    // Proses verifikasi pegawai harus mengubah status dengan benar
     it('should reject user without Admin role accessing pegawai.create', async () => {
       // Register user tanpa role
       const result = await registerAndLogin(app, {
@@ -302,6 +335,7 @@ describe('Auth RBAC (Integration)', () => {
         .expect(403);
     });
 
+    // Keputusan verifikasi role harus tercermin di data
     it('should reject user with Staff role accessing admin-only endpoint', async () => {
       const staffResult = await registerAndLogin(app, {
         username: 'staffguard',
@@ -340,6 +374,7 @@ describe('Auth RBAC (Integration)', () => {
 
   // ==================== UPDATE USER ====================
   describe('PATCH /api/users/:id', () => {
+    // Status user harus bisa diaktifkan dan dinonaktifkan
     it('should deactivate user and prevent login', async () => {
       const result = await registerAndLogin(app, {
         username: 'deactivateuser',

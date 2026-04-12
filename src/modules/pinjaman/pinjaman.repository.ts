@@ -147,10 +147,10 @@ export class PinjamanRepository {
       nasabahId: args.nasabahId,
       deletedAt: null,
       ...(typeof args.page.after === 'number'
-        ? { id: { gt: args.page.after } }
+        ? { id: { lt: args.page.after } }
         : {}),
       ...(typeof args.page.before === 'number'
-        ? { id: { lt: args.page.before } }
+        ? { id: { gt: args.page.before } }
         : {}),
     };
 
@@ -159,7 +159,7 @@ export class PinjamanRepository {
       include: {
         verifiedBy: true,
       },
-      orderBy: { id: isBackward ? 'desc' : 'asc' },
+      orderBy: { id: isBackward ? 'asc' : 'desc' },
       take: args.page.take,
     });
 
@@ -182,7 +182,7 @@ export class PinjamanRepository {
         where: {
           nasabahId: args.nasabahId,
           deletedAt: null,
-          id: { lt: prevCursor },
+          id: { gt: prevCursor },
         },
         select: { id: true },
       }),
@@ -190,7 +190,7 @@ export class PinjamanRepository {
         where: {
           nasabahId: args.nasabahId,
           deletedAt: null,
-          id: { gt: nextCursor },
+          id: { lt: nextCursor },
         },
         select: { id: true },
       }),

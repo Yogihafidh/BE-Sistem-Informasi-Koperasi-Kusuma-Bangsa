@@ -13,23 +13,40 @@ import {
   registerAndLogin,
 } from '../helpers/auth.helper';
 
+/**
+ * Integration test untuk memvalidasi endpoint modul Settings.
+ *
+ * Tujuan:
+ * - Memastikan pembacaan dan perubahan konfigurasi sistem berjalan benar
+ * - Memastikan hanya role yang berwenang dapat mengakses endpoint settings
+ * - Mencegah regression pada konfigurasi yang memengaruhi aturan bisnis
+ */
 describe('Settings Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
 
   beforeAll(async () => {
+    // Inisialisasi aplikasi NestJS dalam mode testing
     app = await createTestApp();
+
+    // Reset database untuk memastikan kondisi awal selalu bersih dan konsisten
     await cleanupDatabase(getPrisma());
+
+    // Isi database dengan data awal untuk kebutuhan skenario integration
     await seedDatabase(getPrisma());
+
+    // Login sebagai admin untuk mendapatkan access token endpoint protected
     const tokens = await loginAsAdmin(app);
     adminToken = tokens.accessToken;
   });
 
   afterAll(async () => {
+    // Menutup koneksi aplikasi setelah seluruh test selesai dijalankan
     await closeTestApp(app);
   });
 
   describe('GET /api/settings', () => {
+    // List setting harus mengikuti parameter query
     it('should list all settings (10 seeded)', async () => {
       const res = await authGet(app, '/api/settings', adminToken).expect(200);
 
@@ -39,6 +56,7 @@ describe('Settings Module (Integration)', () => {
   });
 
   describe('GET /api/settings/:key', () => {
+    // Data setting per id harus terbaca dengan benar
     it('should get setting by key', async () => {
       const res = await authGet(
         app,
@@ -50,6 +68,7 @@ describe('Settings Module (Integration)', () => {
       expect(res.body.data).toHaveProperty('value');
     });
 
+    // Setting tidak ditemukan -> harus 404
     it('should return 404 for non-existent key', async () => {
       await authGet(app, '/api/settings/nonexistent.key', adminToken).expect(
         404,
@@ -58,6 +77,7 @@ describe('Settings Module (Integration)', () => {
   });
 
   describe('PUT /api/settings/:key', () => {
+    // Update setting -> perubahan harus tersimpan
     it('should update existing setting', async () => {
       const res = await authPut(
         app,
@@ -73,6 +93,7 @@ describe('Settings Module (Integration)', () => {
       expect(res.body.data.value).toBe('75000000');
     });
 
+    // Cari setting dengan id yang tidak ada -> harus 404
     it('should return 404 for non-existent setting key', async () => {
       await authPut(app, '/api/settings/custom.newSetting', adminToken)
         .send({
@@ -84,6 +105,7 @@ describe('Settings Module (Integration)', () => {
   });
 
   describe('Authorization', () => {
+    // Hak akses tidak cukup -> harus 403
     it('should reject non-admin access', async () => {
       const user = await registerAndLogin(app, {
         username: 'settingsnonadmin',

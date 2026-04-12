@@ -20,22 +20,37 @@ import {
 } from '../../helpers/factory.helper';
 
 /**
- * End-to-end business flow:
- * Login → Create Pegawai → Create Nasabah → Verify → Simpanan → Pinjaman → Pencairan → Angsuran → Laporan → Dashboard
+ * Integration test untuk memvalidasi alur bisnis koperasi dari awal hingga akhir.
+ *
+ * Alur utama:
+ * Login -> Create Pegawai -> Create Nasabah -> Verify -> Simpanan -> Pinjaman -> Pencairan -> Angsuran -> Laporan -> Dashboard
+ *
+ * Tujuan:
+ * - Memastikan integrasi lintas modul berjalan mulus dalam satu skenario nyata
+ * - Memastikan setiap tahapan bisnis menghasilkan data yang saling konsisten
+ * - Mencegah regression pada alur operasional utama koperasi
  */
 describe('Full Koperasi Business Flow (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
 
   beforeAll(async () => {
+    // Inisialisasi aplikasi NestJS dalam mode testing
     app = await createTestApp();
+
+    // Reset database untuk memastikan kondisi awal selalu bersih dan konsisten
     await cleanupDatabase(getPrisma());
+
+    // Isi database dengan data awal untuk kebutuhan skenario integration
     await seedDatabase(getPrisma());
+
+    // Login sebagai admin untuk mendapatkan access token endpoint protected
     const tokens = await loginAsAdmin(app);
     adminToken = tokens.accessToken;
   });
 
   afterAll(async () => {
+    // Menutup koneksi aplikasi setelah seluruh test selesai dijalankan
     await closeTestApp(app);
   });
 
@@ -45,6 +60,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
   let rekeningSukarelaId: number;
   let pinjamanId: number;
 
+  // Buat user baru -> proses harus berhasil
   it('Step 1: Register a new employee user', async () => {
     const res = await registerUser(app, {
       username: 'karyawan_flow',
@@ -55,6 +71,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     pegawaiUserId = res.user.id;
   });
 
+  // Buat pegawai baru -> proses harus berhasil
   it('Step 2: Create pegawai from the user', async () => {
     const pegawai = await createTestPegawai(app, adminToken, pegawaiUserId, {
       nama: 'Karyawan Flow',
@@ -64,6 +81,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     expect(pegawai.nama).toBe('Karyawan Flow');
   });
 
+  // Penugasan role harus tersimpan dengan benar
   it('Step 3: Assign Kasir role to the employee user', async () => {
     const rolesRes = await authGet(app, '/api/roles', adminToken).expect(200);
     const kasirRole = rolesRes.body.data.find(
@@ -76,6 +94,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
       .expect(201);
   });
 
+  // Buat nasabah baru -> proses harus berhasil
   it('Step 4: Create a new nasabah', async () => {
     const nasabah = await createTestNasabah(app, adminToken, {
       nama: 'Budi Nasabah Flow',
@@ -86,6 +105,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     nasabahId = nasabah.id;
   });
 
+  // Verifikasi nasabah harus otomatis membuat tiga rekening simpanan
   it('Step 5: Verify the nasabah (auto-creates 3 rekening)', async () => {
     const verified = await verifyNasabah(app, adminToken, nasabahId);
     expect(verified.status).toBe('AKTIF');
@@ -105,6 +125,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     )!.id;
   });
 
+  // Setoran pokok dan sukarela harus tercatat ke rekening yang sesuai
   it('Step 6: Pay POKOK and deposit into SUKARELA rekening', async () => {
     await authPost(
       app,
@@ -125,6 +146,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     expect(res.body.message).toContain('berhasil');
   });
 
+  // Proses verifikasi data harus mengubah status dengan benar
   it('Step 7: Verify saldo increased', async () => {
     const res = await authGet(
       app,
@@ -141,6 +163,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     expect(saldo).toBeGreaterThanOrEqual(2000000);
   });
 
+  // Pinjaman baru harus langsung tersedia setelah dibuat
   it('Step 8: Create a pinjaman (≤ 3M for auto-approval)', async () => {
     const res = await authPost(app, '/api/pinjaman', adminToken)
       .send({
@@ -154,6 +177,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     pinjamanId = res.body.data.id;
   });
 
+  // Pencairan pinjaman tidak boleh diproses dua kali
   it('Step 9: Pencairan pinjaman', async () => {
     const res = await authPost(
       app,
@@ -166,6 +190,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     expect(res.body.message).toContain('berhasil');
   });
 
+  // Pembayaran angsuran harus mengurangi sisa pinjaman
   it('Step 10: Pay angsuran', async () => {
     const res = await authPost(
       app,
@@ -178,6 +203,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     expect(res.body.message).toContain('berhasil');
   });
 
+  // Ambil daftar transaksi dengan filter dan pagination
   it('Step 11: Check transaksi list has records', async () => {
     const res = await authGet(
       app,
@@ -188,6 +214,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     expect(res.body.data.length).toBeGreaterThanOrEqual(3);
   });
 
+  // Buat laporan baru -> proses harus berhasil
   it('Step 12: Generate laporan keuangan', async () => {
     const bulan = new Date().getMonth() + 1;
     const tahun = new Date().getFullYear();
@@ -201,6 +228,7 @@ describe('Full Koperasi Business Flow (Integration)', () => {
     expect(res.body.data).toHaveProperty('id');
   });
 
+  // Dashboard harus mencerminkan kondisi data saat ini
   it('Step 13: Check dashboard summary', async () => {
     const res = await authGet(app, '/api/dashboard', adminToken).expect(200);
 

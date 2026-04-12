@@ -12,6 +12,14 @@ import {
   registerAndLogin,
 } from '../helpers/auth.helper';
 
+/**
+ * Integration test untuk memvalidasi endpoint modul Audit.
+ *
+ * Tujuan:
+ * - Memastikan data audit trail dapat diakses dengan format yang benar
+ * - Memastikan fitur filter dan pagination berjalan konsisten
+ * - Mencegah regression pada endpoint audit yang dipakai monitoring aktivitas
+ */
 describe('Audit Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
@@ -33,10 +41,16 @@ describe('Audit Module (Integration)', () => {
   };
 
   beforeAll(async () => {
+    // Inisialisasi aplikasi NestJS dalam mode testing
     app = await createTestApp();
+
+    // Reset database untuk memastikan kondisi awal selalu bersih dan konsisten
     await cleanupDatabase(getPrisma());
+
+    // Isi database dengan data awal untuk kebutuhan skenario integration
     await seedDatabase(getPrisma());
 
+    // Login sebagai admin untuk mendapatkan access token endpoint protected
     const admin = await loginAsAdmin(app);
     adminToken = admin.accessToken;
 
@@ -46,10 +60,12 @@ describe('Audit Module (Integration)', () => {
   });
 
   afterAll(async () => {
+    // Menutup koneksi aplikasi setelah seluruh test selesai dijalankan
     await closeTestApp(app);
   });
 
   describe('GET /api/audit-trails', () => {
+    // Ambil daftar audit trail dengan filter dan pagination
     it('should list audit trails with pagination', async () => {
       const res = await authGet(
         app,
@@ -67,6 +83,7 @@ describe('Audit Module (Integration)', () => {
       expect(body.pagination).toHaveProperty('totalPages');
     });
 
+    // Ambil daftar audit trail dengan filter dan pagination
     it('should filter audit trails by action', async () => {
       const res = await authGet(
         app,
@@ -83,6 +100,7 @@ describe('Audit Module (Integration)', () => {
       }
     });
 
+    // Input tidak valid harus ditolak -> 400
     it('should reject invalid date query', async () => {
       await authGet(
         app,
@@ -93,6 +111,7 @@ describe('Audit Module (Integration)', () => {
   });
 
   describe('GET /api/audit-trails/:id', () => {
+    // Data audit trail per id harus terbaca dengan benar
     it('should get detail of specific audit trail', async () => {
       const list = await authGet(
         app,
@@ -118,6 +137,7 @@ describe('Audit Module (Integration)', () => {
       expect(detail.data).toHaveProperty('createdAt');
     });
 
+    // Cari audit trail dengan id yang tidak ada -> harus 404
     it('should return 404 for non-existent audit trail', async () => {
       await authGet(
         app,
@@ -126,6 +146,7 @@ describe('Audit Module (Integration)', () => {
       ).expect(404);
     });
 
+    // Payload yang salah format tidak boleh diproses -> 400
     it('should return 400 for invalid audit trail id format', async () => {
       await authGet(
         app,
@@ -136,6 +157,7 @@ describe('Audit Module (Integration)', () => {
   });
 
   describe('Authorization', () => {
+    // Proses verifikasi permission harus mengubah status dengan benar
     it('should reject user without audit.read permission', async () => {
       const generatedPassword = `NoPerm${Date.now()}!`;
       const user = await registerAndLogin(app, {

@@ -15,15 +15,30 @@ import {
 } from '../helpers/auth.helper';
 import { createFullNasabah } from '../helpers/factory.helper';
 
+/**
+ * Integration test untuk memvalidasi endpoint modul Pinjaman.
+ *
+ * Tujuan:
+ * - Memastikan proses pengajuan, verifikasi, dan pengelolaan pinjaman konsisten
+ * - Memastikan validasi nominal, status, dan relasi data berjalan benar
+ * - Mencegah regression pada alur kredit nasabah
+ */
 describe('Pinjaman Module (Integration)', () => {
   let app: INestApplication;
   let adminToken: string;
   let nasabahId: number;
 
   beforeAll(async () => {
+    // Inisialisasi aplikasi NestJS dalam mode testing
     app = await createTestApp();
+
+    // Reset database untuk memastikan kondisi awal selalu bersih dan konsisten
     await cleanupDatabase(getPrisma());
+
+    // Isi database dengan data awal untuk kebutuhan skenario integration
     await seedDatabase(getPrisma());
+
+    // Login sebagai admin untuk mendapatkan access token endpoint protected
     const tokens = await loginAsAdmin(app);
     adminToken = tokens.accessToken;
 
@@ -46,6 +61,7 @@ describe('Pinjaman Module (Integration)', () => {
   });
 
   afterAll(async () => {
+    // Menutup koneksi aplikasi setelah seluruh test selesai dijalankan
     await closeTestApp(app);
   });
 
@@ -53,6 +69,7 @@ describe('Pinjaman Module (Integration)', () => {
   let autoApprovedPinjamanId: number;
 
   describe('POST /api/pinjaman', () => {
+    // Pembuatan pinjaman harus menyimpan data yang valid
     it('should create pinjaman with auto-approval (≤ 3M)', async () => {
       const res = await authPost(app, '/api/pinjaman', adminToken)
         .send({
@@ -68,6 +85,7 @@ describe('Pinjaman Module (Integration)', () => {
       autoApprovedPinjamanId = res.body.data.id;
     });
 
+    // Buat pinjaman baru -> proses harus berhasil
     it('should create pinjaman that requires verification (> 3M)', async () => {
       const res = await authPost(app, '/api/pinjaman', adminToken)
         .send({
@@ -81,6 +99,7 @@ describe('Pinjaman Module (Integration)', () => {
       pinjamanId = res.body.data.id;
     });
 
+    // Payload yang salah format tidak boleh diproses -> 400
     it('should reject pinjaman exceeding max amount', async () => {
       await authPost(app, '/api/pinjaman', adminToken)
         .send({
@@ -91,6 +110,7 @@ describe('Pinjaman Module (Integration)', () => {
         .expect(400);
     });
 
+    // Cari nasabah dengan id yang tidak ada -> harus 404
     it('should reject pinjaman for non-existent nasabah', async () => {
       await authPost(app, '/api/pinjaman', adminToken)
         .send({
@@ -103,6 +123,7 @@ describe('Pinjaman Module (Integration)', () => {
   });
 
   describe('GET /api/pinjaman/nasabah/:nasabahId', () => {
+    // List nasabah harus mengikuti parameter query
     it('should list pinjaman by nasabah', async () => {
       const res = await authGet(
         app,
@@ -116,6 +137,7 @@ describe('Pinjaman Module (Integration)', () => {
       expect(res.body.data[0].verifiedById).toBeUndefined();
     });
 
+    // Ambil nasabah yang tidak ada -> harus 404
     it('should return 404 when nasabah does not exist', async () => {
       await authGet(app, '/api/pinjaman/nasabah/99999999', adminToken).expect(
         404,
@@ -124,6 +146,7 @@ describe('Pinjaman Module (Integration)', () => {
   });
 
   describe('GET /api/pinjaman', () => {
+    // Ubah status pinjaman -> hasilnya harus sesuai request
     it('should list all pinjaman and filter by status', async () => {
       const res = await authGet(
         app,
@@ -148,6 +171,7 @@ describe('Pinjaman Module (Integration)', () => {
       expect(typeof res.body.pagination.hasNext).toBe('boolean');
     });
 
+    // Ambil daftar pinjaman dengan filter dan pagination
     it('should sort pinjaman nominal asc and desc', async () => {
       const ascRes = await authGet(
         app,
@@ -178,6 +202,7 @@ describe('Pinjaman Module (Integration)', () => {
       }
     });
 
+    // List pinjaman harus mengikuti parameter query
     it('should paginate all pinjaman data', async () => {
       const firstBatch = await authGet(
         app,
@@ -204,6 +229,7 @@ describe('Pinjaman Module (Integration)', () => {
       }
     });
 
+    // Detail pinjaman yang diminta harus kembali lengkap
     it('should get pinjaman detail by id', async () => {
       const res = await authGet(
         app,
@@ -222,6 +248,7 @@ describe('Pinjaman Module (Integration)', () => {
   });
 
   describe('PATCH /api/pinjaman/:id/verifikasi', () => {
+    // Proses verifikasi pinjaman harus mengubah status dengan benar
     it('should verify pinjaman as DISETUJUI', async () => {
       const res = await authPatch(
         app,
@@ -234,6 +261,7 @@ describe('Pinjaman Module (Integration)', () => {
       expect(res.body.data.status).toBe('DISETUJUI');
     });
 
+    // Proses verifikasi pinjaman harus mengubah status dengan benar
     it('should reject re-verification of already verified pinjaman', async () => {
       await authPatch(app, `/api/pinjaman/${pinjamanId}/verifikasi`, adminToken)
         .send({ status: 'DISETUJUI' })
@@ -242,6 +270,7 @@ describe('Pinjaman Module (Integration)', () => {
   });
 
   describe('POST /api/pinjaman/:id/pencairan', () => {
+    // Proses verifikasi pinjaman harus mengubah status dengan benar
     it('should process pencairan for approved pinjaman', async () => {
       const res = await authPost(
         app,
@@ -277,6 +306,7 @@ describe('Pinjaman Module (Integration)', () => {
       expect(Number(detail.sisaPinjaman)).toBeCloseTo(expectedSisaPinjaman, 2);
     });
 
+    // Pencairan pinjaman tidak boleh diproses dua kali -> harus 400
     it('should reject duplicate pencairan', async () => {
       await authPost(app, `/api/pinjaman/${pinjamanId}/pencairan`, adminToken)
         .send({
@@ -287,6 +317,7 @@ describe('Pinjaman Module (Integration)', () => {
   });
 
   describe('POST /api/pinjaman/:id/angsuran', () => {
+    // Pembayaran angsuran harus mengurangi sisa pinjaman
     it('should process angsuran payment', async () => {
       const res = await authPost(
         app,
@@ -302,6 +333,7 @@ describe('Pinjaman Module (Integration)', () => {
       expect(res.body.message).toContain('berhasil');
     });
 
+    // Input tidak valid harus ditolak -> 400
     it('should reject angsuran exceeding sisa pinjaman', async () => {
       await authPost(app, `/api/pinjaman/${pinjamanId}/angsuran`, adminToken)
         .send({
@@ -313,6 +345,7 @@ describe('Pinjaman Module (Integration)', () => {
   });
 
   describe('GET /api/pinjaman/:id/transaksi', () => {
+    // Daftar pinjaman yang tampil harus sesuai query
     it('should list transaksi history for pinjaman', async () => {
       const res = await authGet(
         app,
@@ -324,6 +357,7 @@ describe('Pinjaman Module (Integration)', () => {
       expect(res.body.data.length).toBeGreaterThanOrEqual(1);
     });
 
+    // Pinjaman tidak ditemukan -> harus 404
     it('should return 404 for non-existent pinjaman transaksi history', async () => {
       await authGet(app, '/api/pinjaman/99999/transaksi', adminToken).expect(
         404,
@@ -332,6 +366,7 @@ describe('Pinjaman Module (Integration)', () => {
   });
 
   describe('Auto-approved pinjaman flow', () => {
+    // Proses verifikasi pinjaman harus mengubah status dengan benar
     it('should allow pencairan of auto-approved pinjaman', async () => {
       const res = await authPost(
         app,
@@ -360,6 +395,7 @@ describe('Pinjaman Module (Integration)', () => {
       toDeletePinjamanId = res.body.data.id;
     });
 
+    // Soft delete pinjaman harus menyembunyikan data dari list
     it('should soft-delete pinjaman', async () => {
       const res = await authDelete(
         app,

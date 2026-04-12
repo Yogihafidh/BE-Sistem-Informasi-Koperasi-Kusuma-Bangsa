@@ -124,14 +124,14 @@ export class NasabahRepository {
 
     const dataWhere: Prisma.NasabahWhereInput = {
       ...baseWhere,
-      ...(typeof page.after === 'number' ? { id: { gt: page.after } } : {}),
-      ...(typeof page.before === 'number' ? { id: { lt: page.before } } : {}),
+      ...(typeof page.after === 'number' ? { id: { lt: page.after } } : {}),
+      ...(typeof page.before === 'number' ? { id: { gt: page.before } } : {}),
     };
 
     const rows = await this.prisma.nasabah.findMany({
       where: dataWhere,
       select: nasabahListSelect,
-      orderBy: { id: isBackward ? 'desc' : 'asc' },
+      orderBy: { id: isBackward ? 'asc' : 'desc' },
       take: page.take,
     });
 
@@ -154,14 +154,14 @@ export class NasabahRepository {
       this.prisma.nasabah.findFirst({
         where: {
           ...baseWhere,
-          id: { lt: prevCursor },
+          id: { gt: prevCursor },
         },
         select: { id: true },
       }),
       this.prisma.nasabah.findFirst({
         where: {
           ...baseWhere,
-          id: { gt: nextCursor },
+          id: { lt: nextCursor },
         },
         select: { id: true },
       }),

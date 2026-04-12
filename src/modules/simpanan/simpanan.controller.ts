@@ -153,12 +153,13 @@ export class SimpananController {
   @ApiQuery({
     name: 'after',
     required: false,
-    description: 'Arah maju. Ambil data setelah ID ini.',
+    description:
+      'Arah maju (default terbaru -> terlama). Ambil data yang lebih lama dari ID ini.',
   })
   @ApiQuery({
     name: 'before',
     required: false,
-    description: 'Arah mundur. Ambil data sebelum ID ini.',
+    description: 'Arah mundur. Ambil data yang lebih baru dari ID ini.',
   })
   @ApiResponse({
     status: 200,
