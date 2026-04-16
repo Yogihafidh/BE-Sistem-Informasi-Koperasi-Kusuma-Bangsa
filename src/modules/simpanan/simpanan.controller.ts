@@ -204,7 +204,7 @@ export class SimpananController {
 
   @Delete('rekening/:id')
   @ApiBearerAuth('JWT-auth')
-  @Permissions('simpanan.read')
+  @Permissions('simpanan.tarik')
   @ApiOperation({
     summary: 'Soft delete rekening simpanan',
     description:

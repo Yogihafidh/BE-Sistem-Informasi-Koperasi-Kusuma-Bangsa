@@ -238,6 +238,48 @@ export class NasabahController {
     return this.nasabahService.getNasabahById(id, user);
   }
 
+  @Get(':id/summary')
+  @ApiBearerAuth('JWT-auth')
+  @Permissions('nasabah.read')
+  @ApiOperation({
+    summary: 'Summary realtime nasabah',
+    description:
+      'Snapshot ringan kondisi terkini nasabah: saldo saat ini, sisa pinjaman, aktivitas bulan ini, dan status risiko.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Summary realtime nasabah berhasil diambil',
+  })
+  @ApiNotFoundExample('Nasabah tidak ditemukan')
+  @ApiAuthErrors()
+  getNasabahSummary(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+  ) {
+    return this.nasabahService.getNasabahSummary(id, user);
+  }
+
+  @Get(':id/dashboard')
+  @ApiBearerAuth('JWT-auth')
+  @Permissions('nasabah.read')
+  @ApiOperation({
+    summary: 'Dashboard nasabah',
+    description:
+      'Data siap visualisasi untuk dashboard nasabah: highlight, aktivitas, tren cashflow, tren sisa pinjaman, rasio, dan insight rekomendasi.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Dashboard nasabah berhasil diambil',
+  })
+  @ApiNotFoundExample('Nasabah tidak ditemukan')
+  @ApiAuthErrors()
+  getNasabahDashboard(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserFromJwt,
+  ) {
+    return this.nasabahService.getNasabahDashboard(id, user);
+  }
+
   @Patch(':id')
   @ApiBearerAuth('JWT-auth')
   @Permissions('nasabah.update')
@@ -271,7 +313,7 @@ export class NasabahController {
     return this.nasabahService.updateNasabah(
       id,
       dto,
-      user.userId,
+      user,
       getClientIp(request),
     );
   }
@@ -512,7 +554,7 @@ export class NasabahController {
     return this.nasabahService.updateStatusNasabah(
       id,
       dto,
-      user.userId,
+      user,
       getClientIp(request),
     );
   }
