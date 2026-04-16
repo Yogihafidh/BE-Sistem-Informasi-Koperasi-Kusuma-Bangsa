@@ -313,7 +313,7 @@ export class NasabahController {
     return this.nasabahService.updateNasabah(
       id,
       dto,
-      user.userId,
+      user,
       getClientIp(request),
     );
   }
@@ -554,7 +554,7 @@ export class NasabahController {
     return this.nasabahService.updateStatusNasabah(
       id,
       dto,
-      user.userId,
+      user,
       getClientIp(request),
     );
   }

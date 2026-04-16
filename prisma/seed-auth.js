@@ -258,10 +258,14 @@ async function seed() {
     // 4.3 Kasir
     console.log('3.3 Assigning permissions to Kasir role...');
     const kasirPermissionCodes = [
+      'nasabah.read',
+      'simpanan.read',
       'simpanan.setor',
       'simpanan.tarik',
+      'pinjaman.read',
       'pinjaman.cairkan',
       'pinjaman.angsuran',
+      'transaksi.read',
       'laporan.read',
       'dashboard.read',
     ];
@@ -314,12 +318,17 @@ async function seed() {
     // 4.5 Pimpinan
     console.log('3.5 Assigning permissions to Pimpinan role...');
     const pimpinanPermissionCodes = [
+      'nasabah.read',
       'nasabah.verify',
+      'simpanan.read',
+      'pinjaman.read',
       'pinjaman.verify',
+      'transaksi.read',
       'laporan.read',
       'laporan.generate',
       'laporan.finalize',
       'dashboard.read',
+      'audit.read',
     ];
 
     const pimpinanPermissions = await prisma.permission.findMany({

@@ -260,6 +260,7 @@ export async function seedDatabase(p?: PrismaClient): Promise<void> {
     'pinjaman.cairkan',
     'pinjaman.angsuran',
     'transaksi.read',
+    'laporan.read',
     'dashboard.read',
   ];
   const kasirPerms = await client.permission.findMany({
@@ -275,11 +276,9 @@ export async function seedDatabase(p?: PrismaClient): Promise<void> {
     'nasabah.create',
     'nasabah.read',
     'nasabah.update',
-    'pegawai.read',
-    'simpanan.read',
+    'simpanan.setor',
     'pinjaman.ajukan',
-    'pinjaman.read',
-    'transaksi.read',
+    'pinjaman.angsuran',
   ];
   const staffPerms = await client.permission.findMany({
     where: { code: { in: staffCodes } },
@@ -293,12 +292,10 @@ export async function seedDatabase(p?: PrismaClient): Promise<void> {
   const pimpinanCodes = [
     'nasabah.read',
     'nasabah.verify',
-    'pegawai.read',
     'simpanan.read',
     'pinjaman.read',
     'pinjaman.verify',
     'transaksi.read',
-    'transaksi.process',
     'laporan.read',
     'laporan.generate',
     'laporan.finalize',

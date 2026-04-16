@@ -125,6 +125,13 @@ export class NasabahService {
     private readonly prisma: PrismaClient,
   ) {}
 
+  private hasRole(user: RequestUser, roleName: string) {
+    const normalizedRoleName = roleName.trim().toLowerCase();
+    return user.roles.some(
+      (role) => role.trim().toLowerCase() === normalizedRoleName,
+    );
+  }
+
   private pickNasabahAuditFields(data: {
     pegawaiId?: number | null;
     nomorAnggota?: string | null;
@@ -238,17 +245,49 @@ export class NasabahService {
   }
 
   private isSuperAdmin(user: RequestUser) {
-    return user.roles.some(
-      (role) => role.trim().toLowerCase() === 'super admin',
-    );
+    return this.hasRole(user, 'super admin');
   }
 
   private isAdmin(user: RequestUser) {
-    return user.roles.some((role) => role.trim().toLowerCase() === 'admin');
+    return this.hasRole(user, 'admin');
   }
 
   private isAdminOrSuperAdmin(user: RequestUser) {
     return this.isAdmin(user) || this.isSuperAdmin(user);
+  }
+
+  private isKasir(user: RequestUser) {
+    return this.hasRole(user, 'kasir');
+  }
+
+  private isPimpinan(user: RequestUser) {
+    return this.hasRole(user, 'pimpinan');
+  }
+
+  private canReadAllNasabah(user: RequestUser) {
+    return (
+      this.isAdminOrSuperAdmin(user) ||
+      this.isKasir(user) ||
+      this.isPimpinan(user)
+    );
+  }
+
+  private async assertNasabahOwnership(
+    nasabahPegawaiId: number,
+    user: RequestUser,
+    forbiddenMessage: string,
+  ) {
+    const pegawaiRequester = await this.nasabahRepository.findPegawaiByUserId(
+      user.userId,
+    );
+
+    if (!pegawaiRequester) {
+      throw new NotFoundException('Pegawai tidak ditemukan');
+    }
+
+    if (pegawaiRequester.id !== nasabahPegawaiId) {
+      throw new ForbiddenException(forbiddenMessage);
+    }
   }
 
   private toNumber(value: unknown): number {
@@ -394,15 +433,12 @@ export class NasabahService {
       throw new NotFoundException('Nasabah tidak ditemukan');
     }
 
-    if (!this.isAdminOrSuperAdmin(user)) {
-      const pegawaiPenanggungJawab =
-        await this.nasabahRepository.findPegawaiById(nasabah.pegawaiId);
-
-      if (pegawaiPenanggungJawab?.userId !== user.userId) {
-        throw new ForbiddenException(
-          'Anda tidak berhak mengakses data nasabah ini',
-        );
-      }
+    if (!this.canReadAllNasabah(user)) {
+      await this.assertNasabahOwnership(
+        nasabah.pegawaiId,
+        user,
+        'Anda tidak berhak mengakses data nasabah ini',
+      );
     }
 
     const { from: currentMonthFrom, to: currentMonthTo } =
@@ -602,7 +638,7 @@ export class NasabahService {
       }
     }
 
-    if (this.isAdminOrSuperAdmin(user)) {
+    if (this.canReadAllNasabah(user)) {
       effectivePegawaiId = pegawaiId;
     } else {
       if (pegawaiId === undefined) {
@@ -660,15 +696,12 @@ export class NasabahService {
       throw new NotFoundException('Nasabah tidak ditemukan');
     }
 
-    if (!this.isSuperAdmin(user)) {
-      const pegawaiPenanggungJawab =
-        await this.nasabahRepository.findPegawaiById(nasabah.pegawaiId);
-
-      if (pegawaiPenanggungJawab?.userId !== user.userId) {
-        throw new ForbiddenException(
-          'Anda tidak berhak mengakses dokumen nasabah ini',
-        );
-      }
+    if (!this.canReadAllNasabah(user)) {
+      await this.assertNasabahOwnership(
+        nasabah.pegawaiId,
+        user,
+        'Anda tidak berhak mengakses dokumen nasabah ini',
+      );
     }
 
     const nasabahWithAccessibleDokumen = this.toAccessibleDokumenUrls(nasabah);
@@ -806,12 +839,20 @@ export class NasabahService {
   async updateNasabah(
     id: number,
     dto: UpdateNasabahDto,
-    userId: number,
+    user: RequestUser,
     ipAddress?: string,
   ) {
     const nasabah = await this.nasabahRepository.findNasabahById(id);
     if (!nasabah) {
       throw new NotFoundException('Nasabah tidak ditemukan');
+    }
+
+    if (!this.isAdminOrSuperAdmin(user)) {
+      await this.assertNasabahOwnership(
+        nasabah.pegawaiId,
+        user,
+        'Anda tidak berhak memperbarui data nasabah ini',
+      );
     }
 
     if (dto.pegawaiId !== undefined) {
@@ -844,7 +885,7 @@ export class NasabahService {
           action: AuditAction.UPDATE,
           entityName: 'Nasabah',
           entityId: id,
-          userId,
+          userId: user.userId,
           before: this.pickNasabahAuditFields({
             pegawaiId: nasabah.pegawaiId,
             nomorAnggota: nasabah.nomorAnggota,
@@ -899,15 +940,12 @@ export class NasabahService {
       throw new NotFoundException('Nasabah tidak ditemukan');
     }
 
-    if (!this.isSuperAdmin(user)) {
-      const pegawaiPenanggungJawab =
-        await this.nasabahRepository.findPegawaiById(nasabah.pegawaiId);
-
-      if (pegawaiPenanggungJawab?.userId !== user.userId) {
-        throw new ForbiddenException(
-          'Anda tidak berhak mengunggah dokumen untuk nasabah ini',
-        );
-      }
+    if (!this.isAdminOrSuperAdmin(user)) {
+      await this.assertNasabahOwnership(
+        nasabah.pegawaiId,
+        user,
+        'Anda tidak berhak mengunggah dokumen untuk nasabah ini',
+      );
     }
 
     const ktpFile = files.ktp?.[0];
@@ -1014,15 +1052,12 @@ export class NasabahService {
       throw new NotFoundException('Nasabah tidak ditemukan');
     }
 
-    if (!this.isSuperAdmin(user)) {
-      const pegawaiPenanggungJawab =
-        await this.nasabahRepository.findPegawaiById(nasabah.pegawaiId);
-
-      if (pegawaiPenanggungJawab?.userId !== user.userId) {
-        throw new ForbiddenException(
-          'Anda tidak berhak memperbarui dokumen nasabah ini',
-        );
-      }
+    if (!this.isAdminOrSuperAdmin(user)) {
+      await this.assertNasabahOwnership(
+        nasabah.pegawaiId,
+        user,
+        'Anda tidak berhak memperbarui dokumen nasabah ini',
+      );
     }
 
     const allowedMime = DOKUMEN_MIME_ALLOWED;
@@ -1239,12 +1274,20 @@ export class NasabahService {
   async updateStatusNasabah(
     id: number,
     dto: UpdateNasabahStatusDto,
-    userId: number,
+    user: RequestUser,
     ipAddress?: string,
   ) {
     const nasabah = await this.nasabahRepository.findNasabahById(id);
     if (!nasabah) {
       throw new NotFoundException('Nasabah tidak ditemukan');
+    }
+
+    if (!this.isAdminOrSuperAdmin(user)) {
+      await this.assertNasabahOwnership(
+        nasabah.pegawaiId,
+        user,
+        'Anda tidak berhak memperbarui status nasabah ini',
+      );
     }
 
     if (
@@ -1271,7 +1314,7 @@ export class NasabahService {
           action: AuditAction.UPDATE,
           entityName: 'Nasabah',
           entityId: id,
-          userId,
+          userId: user.userId,
           before: { status: nasabah.status },
           after: { status: result.status },
           ipAddress,

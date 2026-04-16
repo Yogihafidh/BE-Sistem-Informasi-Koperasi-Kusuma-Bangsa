@@ -37,6 +37,8 @@ describe('Nasabah Module (Integration)', () => {
   let pegawaiId: number;
   let staffPegawaiId: number;
   let staffToken: string;
+  let kasirToken: string;
+  let pimpinanToken: string;
   let reassignedPegawaiId: number;
 
   beforeAll(async () => {
@@ -71,6 +73,12 @@ describe('Nasabah Module (Integration)', () => {
     const staffRole = rolesRes.body.data.find(
       (r: { name: string }) => r.name === 'Staff',
     );
+    const kasirRole = rolesRes.body.data.find(
+      (r: { name: string }) => r.name === 'Kasir',
+    );
+    const pimpinanRole = rolesRes.body.data.find(
+      (r: { name: string }) => r.name === 'Pimpinan',
+    );
     await authPost(app, `/api/users/${pegawaiUserId}/roles`, adminToken)
       .send({ roleIds: [adminRole.id] })
       .expect(201);
@@ -103,6 +111,29 @@ describe('Nasabah Module (Integration)', () => {
     const staffTokens = await loginAs(app, 'nasabahpegawai2', 'NasabahPeg456!');
     staffToken = staffTokens.accessToken;
     staffPegawaiId = reassignedPegawaiId;
+
+    const kasirUser = await registerUser(app, {
+      username: 'nasabahkasir',
+      email: 'nasabahkasir@test.com',
+      password: 'NasabahKasir123!',
+    });
+    await authPost(app, `/api/users/${kasirUser.user.id}/roles`, adminToken)
+      .send({ roleIds: [kasirRole.id] })
+      .expect(201);
+    kasirToken = (await loginAs(app, 'nasabahkasir', 'NasabahKasir123!'))
+      .accessToken;
+
+    const pimpinanUser = await registerUser(app, {
+      username: 'nasabahpimpinan',
+      email: 'nasabahpimpinan@test.com',
+      password: 'NasabahPimpinan123!',
+    });
+    await authPost(app, `/api/users/${pimpinanUser.user.id}/roles`, adminToken)
+      .send({ roleIds: [pimpinanRole.id] })
+      .expect(201);
+    pimpinanToken = (
+      await loginAs(app, 'nasabahpimpinan', 'NasabahPimpinan123!')
+    ).accessToken;
   });
 
   afterAll(async () => {
@@ -259,6 +290,17 @@ describe('Nasabah Module (Integration)', () => {
     it('should return 404 for non-existent nasabah', async () => {
       await authGet(app, '/api/nasabah/99999', adminToken).expect(404);
     });
+
+    // Kasir read-only tetap boleh membaca detail nasabah lintas penanggung jawab
+    it('should allow kasir to read nasabah detail', async () => {
+      const res = await authGet(
+        app,
+        `/api/nasabah/${nasabahId}`,
+        kasirToken,
+      ).expect(200);
+
+      expect(res.body.data.id).toBe(nasabahId);
+    });
   });
 
   describe('POST /api/nasabah/:id/dokumen', () => {
@@ -327,6 +369,13 @@ describe('Nasabah Module (Integration)', () => {
   });
 
   describe('PATCH /api/nasabah/:id', () => {
+    // Kasir read-only tidak boleh melakukan update data nasabah
+    it('should reject kasir updating nasabah data', async () => {
+      await authPatch(app, `/api/nasabah/${nasabahId}`, kasirToken)
+        .send({ alamat: 'Tidak boleh oleh kasir' })
+        .expect(403);
+    });
+
     // Data nasabah yang diubah harus terbaca di response
     it('should update nasabah data', async () => {
       const res = await authPatch(app, `/api/nasabah/${nasabahId}`, adminToken)
@@ -335,6 +384,13 @@ describe('Nasabah Module (Integration)', () => {
 
       expect(res.body.data.alamat).toBe('Jl. Updated No. 99');
       expect(res.body.data.pekerjaan).toBe('PNS');
+    });
+
+    // Staff hanya boleh update nasabah yang dia pegang
+    it('should reject staff updating nasabah from another pegawai', async () => {
+      await authPatch(app, `/api/nasabah/${nasabahId}`, staffToken)
+        .send({ alamat: 'Tidak boleh update' })
+        .expect(403);
     });
 
     // Perubahan pegawai harus konsisten setelah disimpan
@@ -347,6 +403,16 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.data.pegawai.id).toBe(reassignedPegawaiId);
     });
 
+    // Setelah menjadi penanggung jawab, staff boleh update nasabah tersebut
+    it('should allow staff updating owned nasabah', async () => {
+      const res = await authPatch(app, `/api/nasabah/${nasabahId}`, staffToken)
+        .send({ catatan: 'Di-handle oleh staff' })
+        .expect(200);
+
+      expect(res.body.data.catatan).toBe('Di-handle oleh staff');
+      expect(res.body.data.pegawaiId).toBe(staffPegawaiId);
+    });
+
     // Pegawai tidak ditemukan -> harus 404
     it('should return 404 when pegawaiId does not exist', async () => {
       await authPatch(app, `/api/nasabah/${nasabahId}`, adminToken)
@@ -356,6 +422,17 @@ describe('Nasabah Module (Integration)', () => {
   });
 
   describe('PATCH /api/nasabah/:id/verifikasi', () => {
+    // Pimpinan memiliki permission verifikasi nasabah
+    it('should allow pimpinan verifying nasabah', async () => {
+      await authPatch(
+        app,
+        `/api/nasabah/${nasabahId}/verifikasi`,
+        pimpinanToken,
+      )
+        .send({ status: 'DITOLAK', catatan: 'Verifikasi oleh pimpinan' })
+        .expect(200);
+    });
+
     // Keputusan verifikasi nasabah harus tercermin di data
     it('should verify nasabah as AKTIF and auto-create rekening simpanan', async () => {
       const res = await authPatch(

@@ -370,6 +370,82 @@ describe('Auth RBAC (Integration)', () => {
         })
         .expect(403);
     });
+
+    it('should allow kasir to access simpanan and pinjaman write endpoints', async () => {
+      const kasirResult = await registerAndLogin(app, {
+        username: 'kasirguard',
+        email: 'kasirguard@test.com',
+        password: 'KasirGuard123!',
+      });
+
+      const rolesRes = await authGet(app, '/api/roles', adminToken).expect(200);
+      const kasirRole = rolesRes.body.data.find(
+        (r: { name: string }) => r.name === 'Kasir',
+      );
+
+      await authPost(app, `/api/users/${kasirResult.userId}/roles`, adminToken)
+        .send({ roleIds: [kasirRole.id] })
+        .expect(201);
+
+      const { accessToken } = await loginAs(
+        app,
+        'kasirguard',
+        'KasirGuard123!',
+      );
+
+      await authGet(app, '/api/transaksi', accessToken).expect(200);
+
+      // Not forbidden means permission passed; expected domain-level 404/validation due missing entity setup
+      await authPost(app, '/api/simpanan/rekening/999999/setoran', accessToken)
+        .send({
+          nominal: 50000,
+          metodePembayaran: 'CASH',
+          catatan: 'Uji akses kasir',
+        })
+        .expect(404);
+
+      await authPost(app, '/api/pinjaman/999999/angsuran', accessToken)
+        .send({
+          nominal: 50000,
+          metodePembayaran: 'CASH',
+          catatan: 'Uji akses kasir',
+        })
+        .expect(404);
+    });
+
+    it('should allow pimpinan to verify pinjaman', async () => {
+      const pimpinanResult = await registerAndLogin(app, {
+        username: 'pimpinanguard',
+        email: 'pimpinanguard@test.com',
+        password: 'PimpinanGuard123!',
+      });
+
+      const rolesRes = await authGet(app, '/api/roles', adminToken).expect(200);
+      const pimpinanRole = rolesRes.body.data.find(
+        (r: { name: string }) => r.name === 'Pimpinan',
+      );
+
+      await authPost(
+        app,
+        `/api/users/${pimpinanResult.userId}/roles`,
+        adminToken,
+      )
+        .send({ roleIds: [pimpinanRole.id] })
+        .expect(201);
+
+      const { accessToken } = await loginAs(
+        app,
+        'pimpinanguard',
+        'PimpinanGuard123!',
+      );
+
+      await authGet(app, '/api/pinjaman', accessToken).expect(200);
+
+      // Not forbidden means permission passed; expected 404 because test id doesn't exist
+      await authPatch(app, '/api/pinjaman/999999/verifikasi', accessToken)
+        .send({ status: 'DISETUJUI', catatan: 'Uji akses pimpinan' })
+        .expect(404);
+    });
   });
 
   // ==================== UPDATE USER ====================
