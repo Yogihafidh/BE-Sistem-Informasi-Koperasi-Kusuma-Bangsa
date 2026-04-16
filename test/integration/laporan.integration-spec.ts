@@ -405,7 +405,7 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
         select: { id: true },
       });
 
-      await prisma.transaksi.create({
+      const inserted = await prisma.transaksi.create({
         data: {
           nasabahId: firstNasabah.id,
           pegawaiId: adminPegawai.id,
@@ -428,6 +428,10 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       expect(after.body.transaksi.totalTransaksi).toBe(
         before.body.transaksi.totalTransaksi + 1,
       );
+
+      await prisma.transaksi.delete({
+        where: { id: inserted.id },
+      });
     });
 
     // Keputusan verifikasi permission harus tercermin di data
@@ -557,6 +561,187 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
         `/api/laporan/keuangan/generate?bulan=${bulan}&tahun=${tahun}`,
         user.accessToken,
       ).expect(403);
+    });
+  });
+
+  describe('GET /api/rekapitulasi/nasabah/:nasabahId', () => {
+    it('should return detailed rekapitulasi for a specific nasabah on March 2026', async () => {
+      const nasabah = await prisma.nasabah.findFirstOrThrow({
+        where: { nomorAnggota: 'TST-RKP-001' },
+        select: { id: true },
+      });
+
+      const res = await authGet(
+        app,
+        `/api/rekapitulasi/nasabah/${nasabah.id}?bulan=${bulan}&tahun=${tahun}`,
+        adminToken,
+      ).expect(200);
+
+      const body = res.body;
+
+      expect(body.nasabah).toEqual(
+        expect.objectContaining({
+          id: String(nasabah.id),
+          nama: 'Nasabah Satu',
+          status: 'AKTIF',
+          tanggalDaftar: '2026-01-05',
+        }),
+      );
+
+      expect(body.periode).toEqual({
+        bulan: 3,
+        tahun: 2026,
+        range: '2026-03-01 - 2026-03-31',
+        jumlahHari: 31,
+      });
+
+      expect(body.ringkasan).toEqual({
+        saldoAwal: 1800000,
+        totalPemasukan: 1500000,
+        totalPengeluaran: 400000,
+        surplus: 1100000,
+        saldoAkhir: 2900000,
+      });
+
+      expect(body.transaksi).toEqual({
+        totalTransaksi: 3,
+        totalNominalTransaksi: 1900000,
+        avgTransaksiPerHari: 3 / 31,
+        rataRataNominalHarian: 1900000 / 31,
+        hariAktif: 3,
+        breakdown: {
+          pemasukan: {
+            setoran: 1000000,
+            angsuran: 500000,
+          },
+          pengeluaran: {
+            penarikan: 400000,
+            pencairan: 0,
+          },
+        },
+      });
+
+      expect(body.simpanan).toEqual({
+        totalSimpanan: 5000000,
+        detail: {
+          pokok: 3000000,
+          wajib: 2000000,
+          sukarela: 0,
+        },
+      });
+
+      expect(body.pinjaman).toEqual({
+        totalPinjaman: 5000000,
+        sisaPinjaman: 2500000,
+        jumlahPinjamanAktif: 1,
+        angsuranBulanIni: 500000,
+        statusPinjaman: 'AMAN',
+      });
+
+      expect(body.aktivitas).toEqual({
+        frekuensiTransaksi: 3,
+        hariAktif: 3,
+        rataRataTransaksiPerHariAktif: 1,
+        statusAktivitas: 'KURANG_AKTIF',
+      });
+
+      expect(body.rasio.rasioMenabung).toBeCloseTo(5000000 / 1500000, 10);
+      expect(body.rasio.rasioPinjamanTerhadapSimpanan).toBeCloseTo(1, 10);
+      expect(body.rasio.rasioArusKasPribadi).toBeCloseTo(1500000 / 400000, 10);
+
+      expect(body.performance.transaksi.growth).toBeCloseTo(0.5, 10);
+      expect(body.performance.transaksi.keterangan).toBe('naik');
+      expect(body.performance.simpanan.growth).toBeCloseTo(0, 10);
+      expect(body.performance.simpanan.keterangan).toBe('stagnan');
+      expect(body.performance.pinjaman.growth).toBeCloseTo(0, 10);
+      expect(body.performance.pinjaman.keterangan).toBe('stagnan');
+
+      expect(body.insight.kategoriNasabah).toBe('PASIF');
+      expect(body.insight.catatan).toContain(
+        'Memiliki rasio menabung yang baik',
+      );
+      expect(body.insight.catatan).toContain('Pinjaman dalam kondisi aman');
+      expect(body.insight.catatan).not.toContain(
+        'Nasabah aktif melakukan transaksi',
+      );
+    });
+
+    it('should handle zero-denominator cases safely without NaN', async () => {
+      const adminPegawai = await prisma.pegawai.findFirstOrThrow({
+        where: { user: { username: 'admin' } },
+        select: { id: true },
+      });
+
+      const noTxNasabah = await prisma.nasabah.create({
+        data: {
+          pegawaiId: adminPegawai.id,
+          nomorAnggota: 'TST-RKP-099',
+          nama: 'Nasabah Tanpa Transaksi',
+          nik: '3201010101011099',
+          alamat: 'Bandung',
+          noHp: '081111000099',
+          pekerjaan: 'Freelancer',
+          instansi: 'Mandiri',
+          penghasilanBulanan: 3000000,
+          tanggalLahir: new Date('1995-09-09T00:00:00.000Z'),
+          tanggalDaftar: new Date('2026-03-25T10:00:00.000Z'),
+          status: NasabahStatus.AKTIF,
+        },
+      });
+
+      const res = await authGet(
+        app,
+        `/api/rekapitulasi/nasabah/${noTxNasabah.id}?bulan=${bulan}&tahun=${tahun}`,
+        adminToken,
+      ).expect(200);
+
+      const body = res.body;
+
+      expect(body.transaksi.totalTransaksi).toBe(0);
+      expect(body.transaksi.totalNominalTransaksi).toBe(0);
+      expect(body.transaksi.avgTransaksiPerHari).toBe(0);
+      expect(body.transaksi.rataRataNominalHarian).toBe(0);
+      expect(body.transaksi.hariAktif).toBe(0);
+
+      expect(body.aktivitas.statusAktivitas).toBe('TIDAK_AKTIF');
+      expect(body.aktivitas.rataRataTransaksiPerHariAktif).toBe(0);
+
+      expect(body.rasio.rasioMenabung).toBe(0);
+      expect(body.rasio.rasioPinjamanTerhadapSimpanan).toBe(0);
+      expect(body.rasio.rasioArusKasPribadi).toBe(0);
+
+      expect(Number.isNaN(body.rasio.rasioMenabung)).toBe(false);
+      expect(Number.isNaN(body.rasio.rasioPinjamanTerhadapSimpanan)).toBe(
+        false,
+      );
+      expect(Number.isNaN(body.rasio.rasioArusKasPribadi)).toBe(false);
+    });
+
+    it('should reject users without laporan.read permission', async () => {
+      const user = await registerAndLogin(app, {
+        username: 'rekap-nasabah-noaccess',
+        email: 'rekap-nasabah-noaccess@test.com',
+        password: noAccessPassword,
+      });
+
+      const nasabah = await prisma.nasabah.findFirstOrThrow({
+        where: { nomorAnggota: 'TST-RKP-001' },
+        select: { id: true },
+      });
+
+      await authGet(
+        app,
+        `/api/rekapitulasi/nasabah/${nasabah.id}?bulan=${bulan}&tahun=${tahun}`,
+        user.accessToken,
+      ).expect(403);
+    });
+
+    it('should return 404 when nasabah is not found', async () => {
+      await authGet(
+        app,
+        `/api/rekapitulasi/nasabah/999999?bulan=${bulan}&tahun=${tahun}`,
+        adminToken,
+      ).expect(404);
     });
   });
 });

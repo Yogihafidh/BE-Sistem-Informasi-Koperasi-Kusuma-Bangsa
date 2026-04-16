@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { JenisSimpanan, JenisTransaksi } from '@prisma/client';
 import { RekapitulasiRepository } from './rekapitulasi.repository';
 
@@ -77,6 +77,89 @@ export type RekapitulasiBulanan = {
   };
 };
 
+export type RekapitulasiNasabahBulanan = {
+  nasabah: {
+    id: string;
+    nama: string;
+    status: 'AKTIF' | 'NONAKTIF';
+    tanggalDaftar: string;
+  };
+  periode: {
+    bulan: number;
+    tahun: number;
+    range: string;
+    jumlahHari: number;
+  };
+  ringkasan: {
+    saldoAwal: number;
+    totalPemasukan: number;
+    totalPengeluaran: number;
+    surplus: number;
+    saldoAkhir: number;
+  };
+  transaksi: {
+    totalTransaksi: number;
+    totalNominalTransaksi: number;
+    avgTransaksiPerHari: number;
+    rataRataNominalHarian: number;
+    hariAktif: number;
+    breakdown: {
+      pemasukan: {
+        setoran: number;
+        angsuran: number;
+      };
+      pengeluaran: {
+        penarikan: number;
+        pencairan: number;
+      };
+    };
+  };
+  simpanan: {
+    totalSimpanan: number;
+    detail: {
+      pokok: number;
+      wajib: number;
+      sukarela: number;
+    };
+  };
+  pinjaman: {
+    totalPinjaman: number;
+    sisaPinjaman: number;
+    jumlahPinjamanAktif: number;
+    angsuranBulanIni: number;
+    statusPinjaman: 'AMAN' | 'BERISIKO';
+  };
+  aktivitas: {
+    frekuensiTransaksi: number;
+    hariAktif: number;
+    rataRataTransaksiPerHariAktif: number;
+    statusAktivitas: 'AKTIF' | 'KURANG_AKTIF' | 'TIDAK_AKTIF';
+  };
+  rasio: {
+    rasioMenabung: number;
+    rasioPinjamanTerhadapSimpanan: number;
+    rasioArusKasPribadi: number;
+  };
+  performance: {
+    transaksi: {
+      growth: number;
+      keterangan: string;
+    };
+    simpanan: {
+      growth: number;
+      keterangan: string;
+    };
+    pinjaman: {
+      growth: number;
+      keterangan: string;
+    };
+  };
+  insight: {
+    kategoriNasabah: string;
+    catatan: string[];
+  };
+};
+
 @Injectable()
 export class RekapitulasiService {
   constructor(private readonly repository: RekapitulasiRepository) {}
@@ -91,6 +174,10 @@ export class RekapitulasiService {
       return value;
     }
 
+    if (typeof value === 'string') {
+      return Number(value);
+    }
+
     if (typeof value === 'bigint') {
       return Number(value);
     }
@@ -99,16 +186,22 @@ export class RekapitulasiService {
       return Number((value as { toString: () => string }).toString());
     }
 
-    return 0;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
   }
 
   // Pembagian aman (hindari division by zero)
   private safeDivide(numerator: number, denominator: number): number {
+    if (!Number.isFinite(numerator) || !Number.isFinite(denominator)) {
+      return 0;
+    }
+
     if (denominator === 0) {
       return 0;
     }
 
-    return numerator / denominator;
+    const result = numerator / denominator;
+    return Number.isFinite(result) ? result : 0;
   }
 
   // Hitung growth (pertumbuhan)
@@ -127,6 +220,22 @@ export class RekapitulasiService {
     }
 
     return 'stagnan';
+  }
+
+  private growthKeteranganSimple(growth: number): string {
+    if (growth > 0) {
+      return 'naik';
+    }
+
+    if (growth < 0) {
+      return 'turun';
+    }
+
+    return 'stagnan';
+  }
+
+  private sanitizeNumber(value: number): number {
+    return Number.isFinite(value) ? value : 0;
   }
 
   // Format tanggal jadi YYYY-MM-DD
@@ -464,6 +573,324 @@ export class RekapitulasiService {
           pertumbuhanBersihAnggota,
           keterangan: this.growthKeterangan(pertumbuhanBersihAnggota),
         },
+      },
+    };
+  }
+
+  async getRekapitulasiNasabah(
+    nasabahId: number,
+    rawBulan?: number,
+    rawTahun?: number,
+  ): Promise<RekapitulasiNasabahBulanan> {
+    const now = new Date();
+    const bulan = rawBulan ?? now.getUTCMonth() + 1;
+    const tahun = rawTahun ?? now.getUTCFullYear();
+
+    const { from: currentFrom, to: currentTo } = this.getPeriodRange(
+      bulan,
+      tahun,
+    );
+    const previousPeriod = this.getPreviousPeriod(bulan, tahun);
+    const { from: previousFrom, to: previousTo } = this.getPeriodRange(
+      previousPeriod.bulan,
+      previousPeriod.tahun,
+    );
+
+    const [
+      nasabah,
+      currentGrouped,
+      previousGrouped,
+      cumulativeUntilPrevious,
+      hariAktifRows,
+      saldoSimpananByJenis,
+      previousSaldoSimpananByJenis,
+      pinjamanCurrentRows,
+      pinjamanPreviousRows,
+    ] = await Promise.all([
+      this.repository.findNasabahById(nasabahId),
+      this.repository.groupTransaksiByJenisNasabah({
+        nasabahId,
+        tanggalFrom: currentFrom,
+        tanggalTo: currentTo,
+      }),
+      this.repository.groupTransaksiByJenisNasabah({
+        nasabahId,
+        tanggalFrom: previousFrom,
+        tanggalTo: previousTo,
+      }),
+      this.repository.groupTransaksiByJenisNasabahUntil({
+        nasabahId,
+        tanggalLte: previousTo,
+      }),
+      this.repository.countDistinctHariAktifTransaksiNasabah({
+        nasabahId,
+        tanggalFrom: currentFrom,
+        tanggalTo: currentTo,
+      }),
+      this.repository.groupSaldoSimpananNasabahByJenisAt({
+        nasabahId,
+        tanggalLte: currentTo,
+      }),
+      this.repository.groupSaldoSimpananNasabahByJenisAt({
+        nasabahId,
+        tanggalLte: previousTo,
+      }),
+      this.repository.getPinjamanNasabahSummaryAt({
+        nasabahId,
+        tanggalLte: currentTo,
+      }),
+      this.repository.getPinjamanNasabahSummaryAt({
+        nasabahId,
+        tanggalLte: previousTo,
+      }),
+    ]);
+
+    if (!nasabah) {
+      throw new NotFoundException('Nasabah tidak ditemukan');
+    }
+
+    const currentByJenis = this.normalizeJenisSummary(currentGrouped);
+    const previousByJenis = this.normalizeJenisSummary(previousGrouped);
+    const cumulativeByJenis = this.normalizeJenisSummary(
+      cumulativeUntilPrevious,
+    );
+
+    const setoran = currentByJenis[JenisTransaksi.SETORAN].nominal;
+    const angsuran = currentByJenis[JenisTransaksi.ANGSURAN].nominal;
+    const penarikan = currentByJenis[JenisTransaksi.PENARIKAN].nominal;
+    const pencairan = currentByJenis[JenisTransaksi.PENCAIRAN].nominal;
+
+    const totalPemasukan = setoran + angsuran;
+    const totalPengeluaran = penarikan + pencairan;
+    const surplus = totalPemasukan - totalPengeluaran;
+
+    const saldoAwal =
+      cumulativeByJenis[JenisTransaksi.SETORAN].nominal +
+      cumulativeByJenis[JenisTransaksi.ANGSURAN].nominal -
+      (cumulativeByJenis[JenisTransaksi.PENARIKAN].nominal +
+        cumulativeByJenis[JenisTransaksi.PENCAIRAN].nominal);
+    const saldoAkhir = saldoAwal + surplus;
+
+    const totalTransaksi =
+      currentByJenis[JenisTransaksi.SETORAN].count +
+      currentByJenis[JenisTransaksi.ANGSURAN].count +
+      currentByJenis[JenisTransaksi.PENARIKAN].count +
+      currentByJenis[JenisTransaksi.PENCAIRAN].count;
+    const totalNominalTransaksi = setoran + angsuran + penarikan + pencairan;
+    const jumlahHari = new Date(Date.UTC(tahun, bulan, 0)).getUTCDate();
+    const avgTransaksiPerHari = this.safeDivide(totalTransaksi, jumlahHari);
+    const rataRataNominalHarian = this.safeDivide(
+      totalNominalTransaksi,
+      jumlahHari,
+    );
+    const hariAktif = this.toNumber(hariAktifRows[0]?.count ?? 0);
+
+    const simpananPokok = this.toNumber(
+      saldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.POKOK,
+      )?._sum.saldoBerjalan,
+    );
+    const simpananWajib = this.toNumber(
+      saldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.WAJIB,
+      )?._sum.saldoBerjalan,
+    );
+    const simpananSukarela = this.toNumber(
+      saldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.SUKARELA,
+      )?._sum.saldoBerjalan,
+    );
+    const totalSimpanan = simpananPokok + simpananWajib + simpananSukarela;
+
+    const pinjamanCurrent = pinjamanCurrentRows[0];
+    const totalPinjaman = this.toNumber(pinjamanCurrent?.totalPinjaman ?? 0);
+    const sisaPinjaman = this.toNumber(pinjamanCurrent?.sisaPinjaman ?? 0);
+    const jumlahPinjamanAktif = this.toNumber(
+      pinjamanCurrent?.jumlahPinjamanAktif ?? 0,
+    );
+    const angsuranBulanIni = angsuran;
+
+    const rasioMenabung = this.safeDivide(totalSimpanan, totalPemasukan);
+    const rasioPinjamanTerhadapSimpanan = this.safeDivide(
+      totalPinjaman,
+      totalSimpanan,
+    );
+    const rasioArusKasPribadi = this.safeDivide(
+      totalPemasukan,
+      totalPengeluaran,
+    );
+
+    const statusPinjaman: 'AMAN' | 'BERISIKO' =
+      rasioPinjamanTerhadapSimpanan > 1 ? 'BERISIKO' : 'AMAN';
+
+    let statusAktivitas: 'AKTIF' | 'KURANG_AKTIF' | 'TIDAK_AKTIF';
+    if (totalTransaksi === 0) {
+      statusAktivitas = 'TIDAK_AKTIF';
+    } else if (totalTransaksi < 5) {
+      statusAktivitas = 'KURANG_AKTIF';
+    } else {
+      statusAktivitas = 'AKTIF';
+    }
+
+    const rataRataTransaksiPerHariAktif = this.safeDivide(
+      totalTransaksi,
+      hariAktif,
+    );
+
+    const previousTotalTransaksi =
+      previousByJenis[JenisTransaksi.SETORAN].count +
+      previousByJenis[JenisTransaksi.ANGSURAN].count +
+      previousByJenis[JenisTransaksi.PENARIKAN].count +
+      previousByJenis[JenisTransaksi.PENCAIRAN].count;
+
+    const previousSimpananPokok = this.toNumber(
+      previousSaldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.POKOK,
+      )?._sum.saldoBerjalan,
+    );
+    const previousSimpananWajib = this.toNumber(
+      previousSaldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.WAJIB,
+      )?._sum.saldoBerjalan,
+    );
+    const previousSimpananSukarela = this.toNumber(
+      previousSaldoSimpananByJenis.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.SUKARELA,
+      )?._sum.saldoBerjalan,
+    );
+    const previousTotalSimpanan =
+      previousSimpananPokok + previousSimpananWajib + previousSimpananSukarela;
+
+    const pinjamanPrevious = pinjamanPreviousRows[0];
+    const previousTotalPinjaman = this.toNumber(
+      pinjamanPrevious?.totalPinjaman ?? 0,
+    );
+
+    const growthTransaksi = this.growthMetric(
+      totalTransaksi,
+      previousTotalTransaksi,
+    );
+    const growthSimpanan = this.growthMetric(
+      totalSimpanan,
+      previousTotalSimpanan,
+    );
+    const growthPinjaman = this.growthMetric(
+      totalPinjaman,
+      previousTotalPinjaman,
+    );
+
+    let kategoriNasabah = 'PASIF';
+    if (
+      statusAktivitas === 'AKTIF' &&
+      rasioMenabung > 0.5 &&
+      rasioPinjamanTerhadapSimpanan <= 1
+    ) {
+      kategoriNasabah = 'AKTIF_PRODUKTIF';
+    } else if (
+      statusAktivitas === 'AKTIF' &&
+      rasioPinjamanTerhadapSimpanan > 1
+    ) {
+      kategoriNasabah = 'AKTIF_BERISIKO';
+    }
+
+    const catatan: string[] = [];
+    if (statusAktivitas === 'AKTIF') {
+      catatan.push('Nasabah aktif melakukan transaksi');
+    }
+    if (rasioMenabung > 0.5) {
+      catatan.push('Memiliki rasio menabung yang baik');
+    }
+    if (rasioPinjamanTerhadapSimpanan <= 1) {
+      catatan.push('Pinjaman dalam kondisi aman');
+    }
+    if (rasioPinjamanTerhadapSimpanan > 1) {
+      catatan.push('Pinjaman berisiko tinggi');
+    }
+
+    return {
+      nasabah: {
+        id: String(nasabah.id),
+        nama: nasabah.nama,
+        status: nasabah.status === 'AKTIF' ? 'AKTIF' : 'NONAKTIF',
+        tanggalDaftar: this.formatDateOnly(nasabah.tanggalDaftar),
+      },
+      periode: {
+        bulan,
+        tahun,
+        range: `${this.formatDateOnly(currentFrom)} - ${this.formatDateOnly(currentTo)}`,
+        jumlahHari,
+      },
+      ringkasan: {
+        saldoAwal: this.sanitizeNumber(saldoAwal),
+        totalPemasukan: this.sanitizeNumber(totalPemasukan),
+        totalPengeluaran: this.sanitizeNumber(totalPengeluaran),
+        surplus: this.sanitizeNumber(surplus),
+        saldoAkhir: this.sanitizeNumber(saldoAkhir),
+      },
+      transaksi: {
+        totalTransaksi: this.sanitizeNumber(totalTransaksi),
+        totalNominalTransaksi: this.sanitizeNumber(totalNominalTransaksi),
+        avgTransaksiPerHari: this.sanitizeNumber(avgTransaksiPerHari),
+        rataRataNominalHarian: this.sanitizeNumber(rataRataNominalHarian),
+        hariAktif: this.sanitizeNumber(hariAktif),
+        breakdown: {
+          pemasukan: {
+            setoran: this.sanitizeNumber(setoran),
+            angsuran: this.sanitizeNumber(angsuran),
+          },
+          pengeluaran: {
+            penarikan: this.sanitizeNumber(penarikan),
+            pencairan: this.sanitizeNumber(pencairan),
+          },
+        },
+      },
+      simpanan: {
+        totalSimpanan: this.sanitizeNumber(totalSimpanan),
+        detail: {
+          pokok: this.sanitizeNumber(simpananPokok),
+          wajib: this.sanitizeNumber(simpananWajib),
+          sukarela: this.sanitizeNumber(simpananSukarela),
+        },
+      },
+      pinjaman: {
+        totalPinjaman: this.sanitizeNumber(totalPinjaman),
+        sisaPinjaman: this.sanitizeNumber(sisaPinjaman),
+        jumlahPinjamanAktif: this.sanitizeNumber(jumlahPinjamanAktif),
+        angsuranBulanIni: this.sanitizeNumber(angsuranBulanIni),
+        statusPinjaman,
+      },
+      aktivitas: {
+        frekuensiTransaksi: this.sanitizeNumber(totalTransaksi),
+        hariAktif: this.sanitizeNumber(hariAktif),
+        rataRataTransaksiPerHariAktif: this.sanitizeNumber(
+          rataRataTransaksiPerHariAktif,
+        ),
+        statusAktivitas,
+      },
+      rasio: {
+        rasioMenabung: this.sanitizeNumber(rasioMenabung),
+        rasioPinjamanTerhadapSimpanan: this.sanitizeNumber(
+          rasioPinjamanTerhadapSimpanan,
+        ),
+        rasioArusKasPribadi: this.sanitizeNumber(rasioArusKasPribadi),
+      },
+      performance: {
+        transaksi: {
+          growth: this.sanitizeNumber(growthTransaksi),
+          keterangan: this.growthKeteranganSimple(growthTransaksi),
+        },
+        simpanan: {
+          growth: this.sanitizeNumber(growthSimpanan),
+          keterangan: this.growthKeteranganSimple(growthSimpanan),
+        },
+        pinjaman: {
+          growth: this.sanitizeNumber(growthPinjaman),
+          keterangan: this.growthKeteranganSimple(growthPinjaman),
+        },
+      },
+      insight: {
+        kategoriNasabah,
+        catatan,
       },
     };
   }

@@ -1,5 +1,11 @@
 import { INestApplication } from '@nestjs/common';
 import {
+  JenisSimpanan,
+  JenisTransaksi,
+  NasabahStatus,
+  PinjamanStatus,
+} from '@prisma/client';
+import {
   createTestApp,
   cleanupDatabase,
   seedDatabase,
@@ -455,6 +461,220 @@ describe('Nasabah Module (Integration)', () => {
         .expect(200);
 
       expect(res.body.data.status).toBe('AKTIF');
+    });
+  });
+
+  describe('GET /api/nasabah/:id/summary', () => {
+    it('should return lightweight realtime summary snapshot', async () => {
+      const prisma = getPrisma();
+
+      const seededNasabah = await prisma.nasabah.create({
+        data: {
+          pegawaiId,
+          nomorAnggota: 'TST-SUM-001',
+          nama: 'Nasabah Summary',
+          nik: '3201010101017771',
+          alamat: 'Bandung',
+          noHp: '081111177771',
+          pekerjaan: 'Wiraswasta',
+          instansi: 'Summary Store',
+          penghasilanBulanan: 4500000,
+          tanggalLahir: new Date('1991-01-01T00:00:00.000Z'),
+          tanggalDaftar: new Date('2026-01-01T00:00:00.000Z'),
+          status: NasabahStatus.AKTIF,
+        },
+      });
+
+      await prisma.rekeningSimpanan.createMany({
+        data: [
+          {
+            nasabahId: seededNasabah.id,
+            jenisSimpanan: JenisSimpanan.POKOK,
+            saldoBerjalan: 2000000,
+          },
+          {
+            nasabahId: seededNasabah.id,
+            jenisSimpanan: JenisSimpanan.WAJIB,
+            saldoBerjalan: 1000000,
+          },
+          {
+            nasabahId: seededNasabah.id,
+            jenisSimpanan: JenisSimpanan.SUKARELA,
+            saldoBerjalan: 500000,
+          },
+        ],
+      });
+
+      await prisma.pinjaman.create({
+        data: {
+          nasabahId: seededNasabah.id,
+          jumlahPinjaman: 4000000,
+          bungaPersen: 2,
+          tenorBulan: 12,
+          totalPengembalian: 4800000,
+          angsuranPerBulan: 400000,
+          sisaPinjaman: 2000000,
+          status: PinjamanStatus.DISETUJUI,
+          tanggalPersetujuan: new Date('2026-01-10T00:00:00.000Z'),
+        },
+      });
+
+      const now = new Date();
+      const currentMonthDayA = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 5, 10, 0, 0, 0),
+      );
+      const currentMonthDayB = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 12, 10, 0, 0, 0),
+      );
+      const currentMonthDayC = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 25, 10, 0, 0, 0),
+      );
+      const prevMonthDay = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 10, 0, 0, 0),
+      );
+
+      await prisma.transaksi.createMany({
+        data: [
+          {
+            nasabahId: seededNasabah.id,
+            pegawaiId,
+            jenisTransaksi: JenisTransaksi.SETORAN,
+            nominal: 1000000,
+            tanggal: prevMonthDay,
+            metodePembayaran: 'CASH',
+          },
+          {
+            nasabahId: seededNasabah.id,
+            pegawaiId,
+            jenisTransaksi: JenisTransaksi.PENARIKAN,
+            nominal: 200000,
+            tanggal: prevMonthDay,
+            metodePembayaran: 'CASH',
+          },
+          {
+            nasabahId: seededNasabah.id,
+            pegawaiId,
+            jenisTransaksi: JenisTransaksi.SETORAN,
+            nominal: 600000,
+            tanggal: currentMonthDayA,
+            metodePembayaran: 'CASH',
+          },
+          {
+            nasabahId: seededNasabah.id,
+            pegawaiId,
+            jenisTransaksi: JenisTransaksi.ANGSURAN,
+            nominal: 300000,
+            tanggal: currentMonthDayB,
+            metodePembayaran: 'CASH',
+          },
+          {
+            nasabahId: seededNasabah.id,
+            pegawaiId,
+            jenisTransaksi: JenisTransaksi.PENARIKAN,
+            nominal: 100000,
+            tanggal: currentMonthDayB,
+            metodePembayaran: 'CASH',
+          },
+          {
+            nasabahId: seededNasabah.id,
+            pegawaiId,
+            jenisTransaksi: JenisTransaksi.PENCAIRAN,
+            nominal: 500000,
+            tanggal: currentMonthDayC,
+            metodePembayaran: 'TRANSFER',
+          },
+        ],
+      });
+
+      const res = await authGet(
+        app,
+        `/api/nasabah/${seededNasabah.id}/summary`,
+        adminToken,
+      ).expect(200);
+
+      expect(res.body.nasabah).toEqual({
+        id: String(seededNasabah.id),
+        nama: 'Nasabah Summary',
+        status: 'AKTIF',
+      });
+
+      expect(res.body.keuangan).toEqual({
+        saldoSaatIni: 1100000,
+        totalSimpanan: 3500000,
+        sisaPinjaman: 2000000,
+      });
+
+      expect(res.body.transaksi.transaksiBulanIni).toBe(4);
+      expect(res.body.transaksi.lastTransactionAt).toBe(
+        currentMonthDayC.toISOString().slice(0, 10),
+      );
+
+      expect(res.body.status).toEqual({
+        statusAktivitas: 'KURANG_AKTIF',
+        statusPinjaman: 'BERISIKO',
+      });
+
+      expect(typeof res.body.meta.generatedAt).toBe('string');
+      expect(Number.isNaN(res.body.keuangan.saldoSaatIni)).toBe(false);
+      expect(Number.isNaN(res.body.keuangan.totalSimpanan)).toBe(false);
+      expect(Number.isNaN(res.body.keuangan.sisaPinjaman)).toBe(false);
+    });
+  });
+
+  describe('GET /api/nasabah/:id/dashboard', () => {
+    it('should return visual-ready dashboard data with trend and insight', async () => {
+      const prisma = getPrisma();
+      const nasabah = await prisma.nasabah.findFirstOrThrow({
+        where: { nomorAnggota: 'TST-SUM-001' },
+        select: { id: true },
+      });
+
+      const res = await authGet(
+        app,
+        `/api/nasabah/${nasabah.id}/dashboard`,
+        adminToken,
+      ).expect(200);
+
+      expect(res.body.highlight.saldo).toBe(1100000);
+      expect(res.body.highlight.sisaPinjaman).toBe(2000000);
+      expect(res.body.highlight.statusPinjaman).toBe('BERISIKO');
+
+      expect(res.body.aktivitas).toEqual({
+        statusAktivitas: 'KURANG_AKTIF',
+        transaksiBulanIni: 4,
+        hariAktif: 3,
+      });
+
+      expect(Array.isArray(res.body.tren.cashflow)).toBe(true);
+      expect(res.body.tren.cashflow.length).toBeGreaterThanOrEqual(3);
+      expect(res.body.tren.cashflow.length).toBeLessThanOrEqual(6);
+
+      expect(Array.isArray(res.body.pinjaman.trenSisaPinjaman)).toBe(true);
+      expect(res.body.pinjaman.trenSisaPinjaman.length).toBe(
+        res.body.tren.cashflow.length,
+      );
+
+      expect(res.body.rasio.rasioMenabung).toBeCloseTo(3500000 / 1900000, 10);
+      expect(res.body.rasio.rasioPinjaman).toBeCloseTo(4000000 / 3500000, 10);
+
+      expect(res.body.insight.kategori).toBe('PASIF');
+      expect(res.body.insight.highlight).toBe(
+        'Aktivitas transaksi Anda masih rendah',
+      );
+      expect(res.body.insight.rekomendasi).toEqual(
+        expect.arrayContaining([
+          'Pertimbangkan mengurangi pinjaman',
+          'Tingkatkan aktivitas transaksi',
+        ]),
+      );
+
+      expect(typeof res.body.meta.generatedAt).toBe('string');
+    });
+
+    it('should return 404 for missing nasabah dashboard', async () => {
+      await authGet(app, '/api/nasabah/999999/dashboard', adminToken).expect(
+        404,
+      );
     });
   });
 });

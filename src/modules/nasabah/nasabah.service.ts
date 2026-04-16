@@ -10,6 +10,7 @@ import {
   AuditAction,
   JenisDokumen,
   JenisSimpanan,
+  JenisTransaksi,
   NasabahStatus,
   Prisma,
   PrismaClient,
@@ -46,6 +47,71 @@ const DOKUMEN_MIME_ALLOWED = ['image/jpeg', 'image/png', 'application/pdf'];
 type RequestUser = {
   userId: number;
   roles: string[];
+};
+
+type StatusAktivitas = 'AKTIF' | 'KURANG_AKTIF' | 'TIDAK_AKTIF';
+type StatusPinjaman = 'AMAN' | 'BERISIKO';
+
+export type NasabahRealtimeSummaryResponse = {
+  nasabah: {
+    id: string;
+    nama: string;
+    status: 'AKTIF' | 'NONAKTIF';
+  };
+  keuangan: {
+    saldoSaatIni: number;
+    totalSimpanan: number;
+    sisaPinjaman: number;
+  };
+  transaksi: {
+    transaksiBulanIni: number;
+    lastTransactionAt: string | null;
+  };
+  status: {
+    statusAktivitas: StatusAktivitas;
+    statusPinjaman: StatusPinjaman;
+  };
+  meta: {
+    generatedAt: string;
+  };
+};
+
+export type NasabahDashboardResponse = {
+  highlight: {
+    saldo: number;
+    sisaPinjaman: number;
+    statusPinjaman: StatusPinjaman;
+  };
+  aktivitas: {
+    statusAktivitas: StatusAktivitas;
+    transaksiBulanIni: number;
+    hariAktif: number;
+  };
+  tren: {
+    cashflow: Array<{
+      bulan: string;
+      masuk: number;
+      keluar: number;
+    }>;
+  };
+  pinjaman: {
+    trenSisaPinjaman: Array<{
+      bulan: string;
+      sisa: number;
+    }>;
+  };
+  rasio: {
+    rasioMenabung: number;
+    rasioPinjaman: number;
+  };
+  insight: {
+    kategori: string;
+    highlight: string;
+    rekomendasi: string[];
+  };
+  meta: {
+    generatedAt: string;
+  };
 };
 
 @Injectable()
@@ -183,6 +249,246 @@ export class NasabahService {
 
   private isAdminOrSuperAdmin(user: RequestUser) {
     return this.isAdmin(user) || this.isSuperAdmin(user);
+  }
+
+  private toNumber(value: unknown): number {
+    if (value == null) {
+      return 0;
+    }
+
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    if (typeof value === 'bigint') {
+      return Number(value);
+    }
+
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    if (typeof value === 'object' && value !== null && 'toString' in value) {
+      const parsed = Number((value as { toString: () => string }).toString());
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    return 0;
+  }
+
+  private safeDivide(numerator: number, denominator: number): number {
+    if (!Number.isFinite(numerator) || !Number.isFinite(denominator)) {
+      return 0;
+    }
+
+    if (denominator === 0) {
+      return 0;
+    }
+
+    const result = numerator / denominator;
+    return Number.isFinite(result) ? result : 0;
+  }
+
+  private sanitizeNumber(value: number): number {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  private formatDateOnly(date: Date): string {
+    return date.toISOString().slice(0, 10);
+  }
+
+  private formatMonthYear(date: Date): string {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    return `${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+  }
+
+  private getCurrentMonthRange() {
+    const now = new Date();
+    const from = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
+    );
+    const to = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+    );
+    return { from, to };
+  }
+
+  private getMonthStartOffset(offsetFromCurrentMonth: number) {
+    const now = new Date();
+    return new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth() + offsetFromCurrentMonth,
+        1,
+      ),
+    );
+  }
+
+  private normalizeTransaksiByJenis(
+    rows: Array<{
+      jenisTransaksi: JenisTransaksi;
+      _sum: { nominal: unknown };
+      _count?: { _all: number };
+    }>,
+  ) {
+    const result: Record<JenisTransaksi, { nominal: number; count: number }> = {
+      [JenisTransaksi.SETORAN]: { nominal: 0, count: 0 },
+      [JenisTransaksi.PENARIKAN]: { nominal: 0, count: 0 },
+      [JenisTransaksi.PENCAIRAN]: { nominal: 0, count: 0 },
+      [JenisTransaksi.ANGSURAN]: { nominal: 0, count: 0 },
+    };
+
+    for (const row of rows) {
+      result[row.jenisTransaksi] = {
+        nominal: this.toNumber(row._sum.nominal),
+        count: row._count?._all ?? 0,
+      };
+    }
+
+    return result;
+  }
+
+  private getStatusAktivitas(transaksiBulanIni: number): StatusAktivitas {
+    if (transaksiBulanIni === 0) {
+      return 'TIDAK_AKTIF';
+    }
+
+    if (transaksiBulanIni < 5) {
+      return 'KURANG_AKTIF';
+    }
+
+    return 'AKTIF';
+  }
+
+  private getStatusPinjaman(
+    totalPinjaman: number,
+    totalSimpanan: number,
+  ): StatusPinjaman {
+    if (totalSimpanan === 0) {
+      return 'BERISIKO';
+    }
+
+    return this.safeDivide(totalPinjaman, totalSimpanan) > 1
+      ? 'BERISIKO'
+      : 'AMAN';
+  }
+
+  private async getSharedNasabahMetrics(id: number, user: RequestUser) {
+    const nasabah = await this.nasabahRepository.findNasabahSummaryById(id);
+    if (!nasabah) {
+      throw new NotFoundException('Nasabah tidak ditemukan');
+    }
+
+    if (!this.isAdminOrSuperAdmin(user)) {
+      const pegawaiPenanggungJawab =
+        await this.nasabahRepository.findPegawaiById(nasabah.pegawaiId);
+
+      if (pegawaiPenanggungJawab?.userId !== user.userId) {
+        throw new ForbiddenException(
+          'Anda tidak berhak mengakses data nasabah ini',
+        );
+      }
+    }
+
+    const { from: currentMonthFrom, to: currentMonthTo } =
+      this.getCurrentMonthRange();
+
+    const [
+      transaksiAllTimeRows,
+      simpananByJenisRows,
+      pinjamanSnapshotRows,
+      transaksiBulanIni,
+      hariAktifRows,
+      lastTransactionAgg,
+    ] = await Promise.all([
+      this.nasabahRepository.groupTransaksiNasabahByJenisAllTime(id),
+      this.nasabahRepository.groupSaldoSimpananNasabahByJenis(id),
+      this.nasabahRepository.getPinjamanNasabahSnapshot(id),
+      this.nasabahRepository.countTransaksiNasabahInRange({
+        nasabahId: id,
+        tanggalFrom: currentMonthFrom,
+        tanggalTo: currentMonthTo,
+      }),
+      this.nasabahRepository.countDistinctHariAktifNasabahInRange({
+        nasabahId: id,
+        tanggalFrom: currentMonthFrom,
+        tanggalTo: currentMonthTo,
+      }),
+      this.nasabahRepository.getLastTransactionAtNasabah(id),
+    ]);
+
+    const transaksiByJenis =
+      this.normalizeTransaksiByJenis(transaksiAllTimeRows);
+    const totalPemasukan =
+      transaksiByJenis[JenisTransaksi.SETORAN].nominal +
+      transaksiByJenis[JenisTransaksi.ANGSURAN].nominal;
+    const totalPengeluaran =
+      transaksiByJenis[JenisTransaksi.PENARIKAN].nominal +
+      transaksiByJenis[JenisTransaksi.PENCAIRAN].nominal;
+
+    const saldoSaatIni = totalPemasukan - totalPengeluaran;
+
+    const simpananPokok = this.toNumber(
+      simpananByJenisRows.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.POKOK,
+      )?._sum.saldoBerjalan,
+    );
+    const simpananWajib = this.toNumber(
+      simpananByJenisRows.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.WAJIB,
+      )?._sum.saldoBerjalan,
+    );
+    const simpananSukarela = this.toNumber(
+      simpananByJenisRows.find(
+        (item) => item.jenisSimpanan === JenisSimpanan.SUKARELA,
+      )?._sum.saldoBerjalan,
+    );
+    const totalSimpanan = simpananPokok + simpananWajib + simpananSukarela;
+
+    const pinjamanSnapshot = pinjamanSnapshotRows[0];
+    const totalPinjaman = this.toNumber(pinjamanSnapshot?.totalPinjaman ?? 0);
+    const sisaPinjaman = this.toNumber(pinjamanSnapshot?.sisaPinjaman ?? 0);
+    const hariAktif = this.toNumber(hariAktifRows[0]?.count ?? 0);
+
+    const statusAktivitas = this.getStatusAktivitas(transaksiBulanIni);
+    const statusPinjaman = this.getStatusPinjaman(totalPinjaman, totalSimpanan);
+    const rasioMenabung = this.safeDivide(totalSimpanan, totalPemasukan);
+    const rasioPinjaman = this.safeDivide(totalPinjaman, totalSimpanan);
+
+    return {
+      nasabah,
+      saldoSaatIni: this.sanitizeNumber(saldoSaatIni),
+      totalSimpanan: this.sanitizeNumber(totalSimpanan),
+      totalPinjaman: this.sanitizeNumber(totalPinjaman),
+      sisaPinjaman: this.sanitizeNumber(sisaPinjaman),
+      transaksiBulanIni: this.sanitizeNumber(transaksiBulanIni),
+      hariAktif: this.sanitizeNumber(hariAktif),
+      lastTransactionAt: lastTransactionAgg._max.tanggal
+        ? this.formatDateOnly(lastTransactionAgg._max.tanggal)
+        : null,
+      statusAktivitas,
+      statusPinjaman,
+      rasioMenabung: this.sanitizeNumber(rasioMenabung),
+      rasioPinjaman: this.sanitizeNumber(rasioPinjaman),
+      totalPemasukanAllTime: this.sanitizeNumber(totalPemasukan),
+      currentMonthFrom,
+      currentMonthTo,
+    };
   }
 
   private async generateNomorAnggota() {
@@ -373,6 +679,127 @@ export class NasabahService {
     return {
       message: 'Berhasil mengambil data nasabah',
       data: nasabahWithAccessibleDokumen as unknown as NasabahDetailDto,
+    };
+  }
+
+  async getNasabahSummary(
+    id: number,
+    user: RequestUser,
+  ): Promise<NasabahRealtimeSummaryResponse> {
+    const shared = await this.getSharedNasabahMetrics(id, user);
+
+    return {
+      nasabah: {
+        id: String(shared.nasabah.id),
+        nama: shared.nasabah.nama,
+        status: shared.nasabah.status === 'AKTIF' ? 'AKTIF' : 'NONAKTIF',
+      },
+      keuangan: {
+        saldoSaatIni: shared.saldoSaatIni,
+        totalSimpanan: shared.totalSimpanan,
+        sisaPinjaman: shared.sisaPinjaman,
+      },
+      transaksi: {
+        transaksiBulanIni: shared.transaksiBulanIni,
+        lastTransactionAt: shared.lastTransactionAt,
+      },
+      status: {
+        statusAktivitas: shared.statusAktivitas,
+        statusPinjaman: shared.statusPinjaman,
+      },
+      meta: {
+        generatedAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  async getNasabahDashboard(
+    id: number,
+    user: RequestUser,
+  ): Promise<NasabahDashboardResponse> {
+    const shared = await this.getSharedNasabahMetrics(id, user);
+
+    const fromMonth = this.getMonthStartOffset(-5);
+    const toMonth = this.getMonthStartOffset(0);
+
+    const [cashflowRows, trenSisaPinjamanRows] = await Promise.all([
+      this.nasabahRepository.getCashflowTrendNasabah({
+        nasabahId: id,
+        fromMonth,
+        toMonth,
+      }),
+      this.nasabahRepository.getTrenSisaPinjamanNasabah({
+        nasabahId: id,
+        fromMonth,
+        toMonth,
+      }),
+    ]);
+
+    let kategori = 'PASIF';
+    if (
+      shared.statusAktivitas === 'AKTIF' &&
+      shared.rasioMenabung > 0.5 &&
+      shared.rasioPinjaman <= 1
+    ) {
+      kategori = 'AKTIF_PRODUKTIF';
+    } else if (shared.statusAktivitas === 'AKTIF' && shared.rasioPinjaman > 1) {
+      kategori = 'AKTIF_BERISIKO';
+    }
+
+    let highlight = 'Aktivitas transaksi Anda masih rendah';
+    if (kategori === 'AKTIF_PRODUKTIF') {
+      highlight = 'Keuangan Anda dalam kondisi sehat';
+    } else if (kategori === 'AKTIF_BERISIKO') {
+      highlight = 'Perlu perhatian terhadap pinjaman Anda';
+    }
+
+    const rekomendasi: string[] = [];
+    if (shared.rasioMenabung <= 0.5) {
+      rekomendasi.push('Tingkatkan frekuensi menabung');
+    }
+    if (shared.rasioPinjaman > 1) {
+      rekomendasi.push('Pertimbangkan mengurangi pinjaman');
+    }
+    if (shared.statusAktivitas !== 'AKTIF') {
+      rekomendasi.push('Tingkatkan aktivitas transaksi');
+    }
+
+    return {
+      highlight: {
+        saldo: shared.saldoSaatIni,
+        sisaPinjaman: shared.sisaPinjaman,
+        statusPinjaman: shared.statusPinjaman,
+      },
+      aktivitas: {
+        statusAktivitas: shared.statusAktivitas,
+        transaksiBulanIni: shared.transaksiBulanIni,
+        hariAktif: shared.hariAktif,
+      },
+      tren: {
+        cashflow: cashflowRows.map((row) => ({
+          bulan: this.formatMonthYear(new Date(row.monthStart)),
+          masuk: this.sanitizeNumber(this.toNumber(row.masuk)),
+          keluar: this.sanitizeNumber(this.toNumber(row.keluar)),
+        })),
+      },
+      pinjaman: {
+        trenSisaPinjaman: trenSisaPinjamanRows.map((row) => ({
+          bulan: this.formatMonthYear(new Date(row.monthStart)),
+          sisa: this.sanitizeNumber(this.toNumber(row.sisa)),
+        })),
+      },
+      rasio: {
+        rasioMenabung: shared.rasioMenabung,
+        rasioPinjaman: shared.rasioPinjaman,
+      },
+      insight: {
+        kategori,
+        highlight,
+        rekomendasi,
+      },
+      meta: {
+        generatedAt: new Date().toISOString(),
+      },
     };
   }
 
