@@ -208,6 +208,7 @@ model LaporanKeuangan {
   generatedAt    DateTime      @default(now()) @db.Timestamptz(3)
   generatedBy    User          @relation("LaporanGeneratedBy", fields: [generatedById], references: [id])
 
+  @@unique([periodeBulan, periodeTahun])
   @@index([periodeTahun, periodeBulan])
 }
 

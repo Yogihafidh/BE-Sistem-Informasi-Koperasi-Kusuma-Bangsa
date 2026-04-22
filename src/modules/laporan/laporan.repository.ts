@@ -7,15 +7,24 @@ export class LaporanRepository {
 
   // Mengambil laporan keuangan berdasarkan bulan dan tahun tertentu
   findLaporanKeuanganByPeriode(bulan: number, tahun: number) {
-    return this.prisma.laporanKeuangan.findFirst({
-      where: { periodeBulan: bulan, periodeTahun: tahun },
+    return this.prisma.laporanKeuangan.findUnique({
+      where: {
+        periodeBulan_periodeTahun: {
+          periodeBulan: bulan,
+          periodeTahun: tahun,
+        },
+      },
     });
   }
 
   // Mengambil laporan keuangan terbaru (bulan & tahun paling akhir)
   findLatestLaporanKeuangan() {
     return this.prisma.laporanKeuangan.findFirst({
-      orderBy: [{ periodeTahun: 'desc' }, { periodeBulan: 'desc' }],
+      orderBy: [
+        { periodeTahun: 'desc' },
+        { periodeBulan: 'desc' },
+        { id: 'desc' },
+      ],
     });
   }
 
@@ -24,8 +33,8 @@ export class LaporanRepository {
     return this.prisma.laporanKeuangan.findUnique({ where: { id } });
   }
 
-  // Menyimpan data laporan keuangan baru
-  createLaporanKeuangan(data: {
+  // Upsert snapshot laporan keuangan per periode
+  upsertLaporanKeuanganByPeriode(data: {
     periodeBulan: number;
     periodeTahun: number;
     totalSimpanan: number;
@@ -33,29 +42,29 @@ export class LaporanRepository {
     totalPinjaman: number;
     totalAngsuran: number;
     saldoAkhir: number;
-    statusLaporan: StatusLaporan;
     generatedById: number;
     generatedAt: Date;
   }) {
-    return this.prisma.laporanKeuangan.create({ data });
-  }
-
-  // Mengupdate data laporan keuangan (nilai keuangan & metadata)
-  updateLaporanKeuangan(
-    id: number,
-    data: {
-      totalSimpanan: number;
-      totalPenarikan: number;
-      totalPinjaman: number;
-      totalAngsuran: number;
-      saldoAkhir: number;
-      generatedById: number;
-      generatedAt: Date;
-    },
-  ) {
-    return this.prisma.laporanKeuangan.update({
-      where: { id },
-      data,
+    return this.prisma.laporanKeuangan.upsert({
+      where: {
+        periodeBulan_periodeTahun: {
+          periodeBulan: data.periodeBulan,
+          periodeTahun: data.periodeTahun,
+        },
+      },
+      create: {
+        ...data,
+        statusLaporan: StatusLaporan.DRAFT,
+      },
+      update: {
+        totalSimpanan: data.totalSimpanan,
+        totalPenarikan: data.totalPenarikan,
+        totalPinjaman: data.totalPinjaman,
+        totalAngsuran: data.totalAngsuran,
+        saldoAkhir: data.saldoAkhir,
+        generatedById: data.generatedById,
+        generatedAt: data.generatedAt,
+      },
     });
   }
 

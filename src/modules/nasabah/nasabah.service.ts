@@ -641,10 +641,6 @@ export class NasabahService {
     if (this.canReadAllNasabah(user)) {
       effectivePegawaiId = pegawaiId;
     } else {
-      if (pegawaiId === undefined) {
-        throw new BadRequestException('pegawaiId wajib diisi');
-      }
-
       const pegawaiRequester = await this.nasabahRepository.findPegawaiByUserId(
         user.userId,
       );
@@ -652,13 +648,14 @@ export class NasabahService {
         throw new NotFoundException('Pegawai tidak ditemukan');
       }
 
-      if (pegawaiRequester.id !== pegawaiId) {
+      if (pegawaiId !== undefined && pegawaiRequester.id !== pegawaiId) {
         throw new ForbiddenException(
           'Anda tidak berhak mengakses data nasabah pegawai lain',
         );
       }
 
-      effectivePegawaiId = pegawaiId;
+      // Staff otomatis difilter ke nasabah miliknya sendiri saat pegawaiId tidak dikirim.
+      effectivePegawaiId = pegawaiId ?? pegawaiRequester.id;
     }
 
     const { data, nextCursor, prevCursor, hasNext, hasPrev } =
