@@ -232,9 +232,12 @@ describe('Nasabah Module (Integration)', () => {
       expect(res.body.pagination).toBeDefined();
     });
 
-    // Staff wajib kirim pegawaiId saat ambil daftar nasabah -> harus 400
-    it('should reject staff without pegawaiId query parameter', async () => {
-      await authGet(app, '/api/nasabah', staffToken).expect(400);
+    // Staff tanpa pegawaiId tetap bisa, otomatis difilter ke nasabah miliknya sendiri
+    it('should auto-filter staff nasabah listing by logged-in pegawai', async () => {
+      const res = await authGet(app, '/api/nasabah', staffToken).expect(200);
+
+      expect(res.body.data).toBeInstanceOf(Array);
+      expect(res.body.pagination).toBeDefined();
     });
 
     // Staff tidak boleh akses nasabah milik pegawai lain -> harus 403

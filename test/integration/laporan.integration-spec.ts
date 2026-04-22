@@ -486,23 +486,111 @@ describe('Rekapitulasi Bulanan Endpoint (Integration)', () => {
       expect(snapshot.body.periodeBulan).toBe(bulan);
       expect(snapshot.body.periodeTahun).toBe(tahun);
 
-      expect(snapshot.body.totalSimpanan).toBe(
-        realtime.body.keuangan.totalSimpanan,
+      expect(snapshot.body.totalSetoran).toBe(
+        realtime.body.transaksi.breakdown.pemasukan.setoran,
       );
       expect(snapshot.body.totalPenarikan).toBe(
         realtime.body.transaksi.breakdown.pengeluaran.penarikan,
       );
-      expect(snapshot.body.totalPinjaman).toBe(
-        realtime.body.keuangan.pinjaman.totalPinjaman,
+      expect(snapshot.body.totalPencairan).toBe(
+        realtime.body.transaksi.breakdown.pengeluaran.pencairan,
       );
       expect(snapshot.body.totalAngsuran).toBe(
         realtime.body.transaksi.breakdown.pemasukan.angsuran,
       );
+      expect(snapshot.body.totalPemasukan).toBe(
+        realtime.body.ringkasan.totalPemasukan,
+      );
+      expect(snapshot.body.totalPengeluaran).toBe(
+        realtime.body.ringkasan.totalPengeluaran,
+      );
+      expect(snapshot.body.netCashflow).toBe(realtime.body.ringkasan.surplus);
+      expect(snapshot.body.saldoAwal).toBe(realtime.body.ringkasan.saldoAwal);
       expect(snapshot.body.saldoAkhir).toBe(realtime.body.ringkasan.saldoAkhir);
 
       expect(snapshot.body.statusLaporan).toBe('DRAFT');
       expect(snapshot.body).toHaveProperty('generatedById');
       expect(snapshot.body).toHaveProperty('generatedAt');
+    });
+
+    it('should preserve saldo invariant for zero and negative edge cases', async () => {
+      const adminUser = await prisma.user.findFirstOrThrow({
+        where: { username: 'admin' },
+        select: { id: true },
+      });
+
+      const edgeCases = [
+        {
+          bulan: 11,
+          tahun: 2025,
+          totalSetoran: 100000,
+          totalAngsuran: 50000,
+          totalPenarikan: 20000,
+          totalPencairan: 130000,
+          saldoAkhir: 0,
+        },
+        {
+          bulan: 12,
+          tahun: 2025,
+          totalSetoran: 0,
+          totalAngsuran: 200000,
+          totalPenarikan: 500000,
+          totalPencairan: 900000,
+          saldoAkhir: -2000000,
+        },
+      ];
+
+      for (const edge of edgeCases) {
+        await prisma.laporanKeuangan.upsert({
+          where: {
+            periodeBulan_periodeTahun: {
+              periodeBulan: edge.bulan,
+              periodeTahun: edge.tahun,
+            },
+          },
+          create: {
+            periodeBulan: edge.bulan,
+            periodeTahun: edge.tahun,
+            totalSimpanan: edge.totalSetoran,
+            totalPenarikan: edge.totalPenarikan,
+            totalPinjaman: edge.totalPencairan,
+            totalAngsuran: edge.totalAngsuran,
+            saldoAkhir: edge.saldoAkhir,
+            statusLaporan: 'DRAFT',
+            generatedById: adminUser.id,
+            generatedAt: new Date('2026-04-22T00:00:00.000Z'),
+          },
+          update: {
+            totalSimpanan: edge.totalSetoran,
+            totalPenarikan: edge.totalPenarikan,
+            totalPinjaman: edge.totalPencairan,
+            totalAngsuran: edge.totalAngsuran,
+            saldoAkhir: edge.saldoAkhir,
+            statusLaporan: 'DRAFT',
+            generatedById: adminUser.id,
+            generatedAt: new Date('2026-04-22T00:00:00.000Z'),
+          },
+        });
+
+        const res = await authGet(
+          app,
+          `/api/laporan/keuangan?bulan=${edge.bulan}&tahun=${edge.tahun}`,
+          adminToken,
+        ).expect(200);
+
+        const body = res.body as {
+          saldoAwal: number;
+          totalPemasukan: number;
+          totalPengeluaran: number;
+          netCashflow: number;
+          saldoAkhir: number;
+        };
+
+        expect(body.netCashflow).toBe(
+          body.totalPemasukan - body.totalPengeluaran,
+        );
+        expect(body.saldoAwal + body.netCashflow).toBe(body.saldoAkhir);
+      }
     });
 
     // Hasil laporan harus konsisten dengan data sumber

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Inject,
+  InternalServerErrorException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -22,8 +23,10 @@ type LaporanSnapshotView = {
   periodeBulan: number;
   periodeTahun: number;
   saldoAwal: number;
+  totalSetoran: number;
   totalSimpanan: number;
   totalPenarikan: number;
+  totalPencairan: number;
   totalPinjaman: number;
   totalAngsuran: number;
   totalPemasukan: number;
@@ -57,24 +60,97 @@ export class LaporanService {
     return Number(value.toString());
   }
 
+  private almostEqual(left: number, right: number, epsilon = 1e-6): boolean {
+    return Math.abs(left - right) <= epsilon;
+  }
+
+  private buildFlowCashflow(args: {
+    saldoAwal: number;
+    setoran: number;
+    angsuran: number;
+    penarikan: number;
+    pencairan: number;
+  }) {
+    const totalPemasukan = args.setoran + args.angsuran;
+    const totalPengeluaran = args.penarikan + args.pencairan;
+    const netCashflow = totalPemasukan - totalPengeluaran;
+    const saldoAkhir = args.saldoAwal + netCashflow;
+
+    return {
+      saldoAwal: args.saldoAwal,
+      totalSetoran: args.setoran,
+      totalAngsuran: args.angsuran,
+      totalPenarikan: args.penarikan,
+      totalPencairan: args.pencairan,
+      totalPemasukan,
+      totalPengeluaran,
+      netCashflow,
+      saldoAkhir,
+    };
+  }
+
+  private assertCashflowConsistency(snapshot: {
+    saldoAwal: number;
+    totalPemasukan: number;
+    totalPengeluaran: number;
+    netCashflow: number;
+    saldoAkhir: number;
+  }) {
+    const isNetValid = this.almostEqual(
+      snapshot.totalPemasukan - snapshot.totalPengeluaran,
+      snapshot.netCashflow,
+    );
+    const isSaldoValid = this.almostEqual(
+      snapshot.saldoAwal + snapshot.netCashflow,
+      snapshot.saldoAkhir,
+    );
+
+    if (!isNetValid || !isSaldoValid) {
+      throw new InternalServerErrorException(
+        'Snapshot laporan tidak konsisten: validasi cashflow gagal',
+      );
+    }
+  }
+
+  private buildSnapshotFromRekap(rekap: RekapitulasiBulanan) {
+    const snapshot = this.buildFlowCashflow({
+      saldoAwal: rekap.ringkasan.saldoAwal,
+      setoran: rekap.transaksi.breakdown.pemasukan.setoran,
+      angsuran: rekap.transaksi.breakdown.pemasukan.angsuran,
+      penarikan: rekap.transaksi.breakdown.pengeluaran.penarikan,
+      pencairan: rekap.transaksi.breakdown.pengeluaran.pencairan,
+    });
+
+    if (!this.almostEqual(snapshot.saldoAkhir, rekap.ringkasan.saldoAkhir)) {
+      throw new InternalServerErrorException(
+        'Snapshot laporan tidak konsisten: saldo akhir rekap tidak sinkron',
+      );
+    }
+
+    this.assertCashflowConsistency(snapshot);
+
+    return snapshot;
+  }
+
   async generateLaporanKeuangan(
     bulan: number,
     tahun: number,
     userId: number,
   ): Promise<{ message: string; data: LaporanKeuangan }> {
-    // Ambil data rekapitulasi (hasil perhitungan semua data)
+    // Rekapitulasi adalah source of truth untuk cashflow periodik.
     const rekap: RekapitulasiBulanan =
       await this.rekapitulasiService.getRekapitulasiBulanan(bulan, tahun);
+    const snapshot = this.buildSnapshotFromRekap(rekap);
 
-    // Mapping data rekap ke format laporan
+    // Simpan flow-only snapshot ke tabel laporan (kolom lama dipakai sebagai storage kompatibel).
     const payload = {
       periodeBulan: bulan,
       periodeTahun: tahun,
-      totalSimpanan: rekap.keuangan.totalSimpanan,
-      totalPenarikan: rekap.transaksi.breakdown.pengeluaran.penarikan,
-      totalPinjaman: rekap.keuangan.pinjaman.totalPinjaman,
-      totalAngsuran: rekap.transaksi.breakdown.pemasukan.angsuran,
-      saldoAkhir: rekap.ringkasan.saldoAkhir,
+      totalSimpanan: snapshot.totalSetoran,
+      totalPenarikan: snapshot.totalPenarikan,
+      totalPinjaman: snapshot.totalPencairan,
+      totalAngsuran: snapshot.totalAngsuran,
+      saldoAkhir: snapshot.saldoAkhir,
       generatedById: userId,
       generatedAt: new Date(),
     };
@@ -90,13 +166,9 @@ export class LaporanService {
       throw new BadRequestException('Laporan keuangan sudah FINAL');
     }
 
-    // Jika sudah ada  UPDATE kalau belum ada CREATE
-    const laporan = existing
-      ? await this.laporanRepository.updateLaporanKeuangan(existing.id, payload)
-      : await this.laporanRepository.createLaporanKeuangan({
-          ...payload,
-          statusLaporan: StatusLaporan.DRAFT,
-        });
+    // Upsert untuk menjaga satu snapshot per periode.
+    const laporan =
+      await this.laporanRepository.upsertLaporanKeuanganByPeriode(payload);
 
     // Catat audit trail (siapa generate laporan)
     await this.auditTrailService.log({
@@ -132,30 +204,44 @@ export class LaporanService {
 
   // MAP DATA LAPORAN KE VIEW
   private mapLaporanSnapshot(laporan: LaporanKeuangan): LaporanSnapshotView {
-    const totalSimpanan = this.toNumber(laporan.totalSimpanan);
+    const totalSetoran = this.toNumber(laporan.totalSimpanan);
     const totalPenarikan = this.toNumber(laporan.totalPenarikan);
-    const totalPinjaman = this.toNumber(laporan.totalPinjaman);
+    const totalPencairan = this.toNumber(laporan.totalPinjaman);
     const totalAngsuran = this.toNumber(laporan.totalAngsuran);
     const saldoAkhir = this.toNumber(laporan.saldoAkhir);
 
-    const totalPemasukan = totalSimpanan + totalAngsuran;
-    const totalPengeluaran = totalPenarikan + totalPinjaman;
-    const netCashflow = totalPemasukan - totalPengeluaran;
-    const saldoAwal = saldoAkhir - netCashflow;
+    const flowSnapshot = this.buildFlowCashflow({
+      saldoAwal: 0,
+      setoran: totalSetoran,
+      angsuran: totalAngsuran,
+      penarikan: totalPenarikan,
+      pencairan: totalPencairan,
+    });
+    const saldoAwal = saldoAkhir - flowSnapshot.netCashflow;
+    const snapshot = this.buildFlowCashflow({
+      saldoAwal,
+      setoran: totalSetoran,
+      angsuran: totalAngsuran,
+      penarikan: totalPenarikan,
+      pencairan: totalPencairan,
+    });
+    this.assertCashflowConsistency(snapshot);
 
     return {
       id: laporan.id,
       periodeBulan: laporan.periodeBulan,
       periodeTahun: laporan.periodeTahun,
-      saldoAwal,
-      totalSimpanan,
-      totalPenarikan,
-      totalPinjaman,
-      totalAngsuran,
-      totalPemasukan,
-      totalPengeluaran,
-      netCashflow,
-      saldoAkhir,
+      saldoAwal: snapshot.saldoAwal,
+      totalSetoran: snapshot.totalSetoran,
+      totalSimpanan: snapshot.totalSetoran,
+      totalPenarikan: snapshot.totalPenarikan,
+      totalPencairan: snapshot.totalPencairan,
+      totalPinjaman: snapshot.totalPencairan,
+      totalAngsuran: snapshot.totalAngsuran,
+      totalPemasukan: snapshot.totalPemasukan,
+      totalPengeluaran: snapshot.totalPengeluaran,
+      netCashflow: snapshot.netCashflow,
+      saldoAkhir: snapshot.saldoAkhir,
       statusLaporan: laporan.statusLaporan,
       generatedById: laporan.generatedById,
       generatedAt: laporan.generatedAt.toISOString(),
