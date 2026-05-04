@@ -1,5 +1,20 @@
-# KSP Backend API
+## 🚀 KSP Financial Management System
 
+A centralized financial system designed to transform manual cooperative operations into a structured, real-time digital platform.
+
+### Problem
+Manual data recording caused duplicate entries, reporting delays (2–3 days), and high risk of human error, limiting operational visibility.
+
+### Solution
+Designed and built a modular backend system using NestJS, PostgreSQL, and Redis to centralize financial workflows and ensure data consistency.
+
+### Impact
+- Real-time financial reporting (previously 2–3 days)
+- Eliminated duplicate data entry (single source of truth)
+- Automated financial calculations
+- Improved accountability with RBAC and audit logs
+
+# KSP Backend API
 Backend API untuk sistem **Koperasi Simpan Pinjam (KSP)**.
 
 API ini menangani proses bisnis utama koperasi: manajemen nasabah, simpanan, pinjaman, transaksi, laporan, dashboard, pengaturan sistem, serta autentikasi dan RBAC.
