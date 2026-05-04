@@ -14,6 +14,14 @@ Designed and built a modular backend system using NestJS, PostgreSQL, and Redis 
 - Automated financial calculations
 - Improved accountability with RBAC and audit logs
 
+### System Architecture
+<img width="1603" height="601" alt="Arsitektur" src="https://github.com/user-attachments/assets/49339f6c-96dc-4589-b201-51f6bdb7da52" />
+
+
+### Database Design
+<img width="1368" height="1909" alt="ERD Design" src="https://github.com/user-attachments/assets/c36fd271-80dd-4045-a9c1-24a91c1fef48" />
+
+
 # KSP Backend API
 Backend API untuk sistem **Koperasi Simpan Pinjam (KSP)**.
 
