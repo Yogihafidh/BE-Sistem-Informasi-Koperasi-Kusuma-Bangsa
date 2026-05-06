@@ -10,6 +10,7 @@ import { Permissions } from '../../common/decorators';
 import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import { ApiAuthErrors } from '../../common/decorators/api-docs.decorator';
 
+// Endpoint untuk dashboard yang memberikan ringkasan informasi penting tentang koperasi, seperti total simpanan, pinjaman, anggota, dan tren aktivitas transaksi. Endpoint ini hanya dapat diakses oleh pengguna dengan izin 'dashboard.read'.
 @ApiTags('dashboard')
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -72,3 +73,4 @@ export class DashboardController {
     return this.dashboardService.getDashboard();
   }
 }
+
