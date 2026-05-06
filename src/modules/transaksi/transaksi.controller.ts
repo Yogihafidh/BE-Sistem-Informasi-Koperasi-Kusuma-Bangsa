@@ -98,6 +98,7 @@ export class TransaksiController {
   })
   @ApiAuthErrors()
   listTransaksi(
+    @CurrentUser() user: UserFromJwt,
     @Query('after', new ParseIntPipe({ optional: true })) after?: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
     @Query('jenisTransaksi') jenisTransaksi?: JenisTransaksi,
@@ -105,13 +106,16 @@ export class TransaksiController {
     @Query('tanggalTo') tanggalTo?: string,
   ) {
     validateBidirectionalPaginationParams(after, before);
-    return this.transaksiService.listTransaksi({
-      after,
-      before,
-      jenisTransaksi,
-      tanggalFrom,
-      tanggalTo,
-    });
+    return this.transaksiService.listTransaksi(
+      {
+        after,
+        before,
+        jenisTransaksi,
+        tanggalFrom,
+        tanggalTo,
+      },
+      user,
+    );
   }
 
   @Get('nasabah/:nasabahId')

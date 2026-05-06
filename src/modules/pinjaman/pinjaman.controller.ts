@@ -150,9 +150,12 @@ export class PinjamanController {
     },
   })
   @ApiAuthErrors()
-  listAllPinjaman(@Query() query: ListPinjamanQueryDto) {
+  listAllPinjaman(
+    @Query() query: ListPinjamanQueryDto,
+    @CurrentUser() user: UserFromJwt,
+  ) {
     validateBidirectionalPaginationParams(query.after, query.before);
-    return this.pinjamanService.listAllPinjaman(query);
+    return this.pinjamanService.listAllPinjaman(query, user);
   }
 
   @Get(':id')

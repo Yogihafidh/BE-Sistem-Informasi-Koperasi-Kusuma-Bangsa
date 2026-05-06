@@ -18,6 +18,7 @@ import { validateBidirectionalPaginationParams } from '../../common/utils/pagina
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
 import { AuditTrailService } from '../audit/audit.service';
+import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
 @Injectable()
 export class TransaksiService {
@@ -425,14 +426,39 @@ export class TransaksiService {
     };
   }
 
-  async listTransaksi(args: {
-    after?: number;
-    before?: number;
-    jenisTransaksi?: JenisTransaksi;
-    tanggalFrom?: string;
-    tanggalTo?: string;
-  }) {
+  async listTransaksi(
+    args: {
+      after?: number;
+      before?: number;
+      jenisTransaksi?: JenisTransaksi;
+      tanggalFrom?: string;
+      tanggalTo?: string;
+    },
+    user: UserFromJwt,
+  ) {
     validateBidirectionalPaginationParams(args.after, args.before);
+
+    const privilegedRoles = new Set(['Super Admin', 'Admin', 'Pimpinan']);
+    const restrictedRoles = new Set(['Staff', 'Kasir']);
+    const roles = user.roles ?? [];
+    const isPrivileged = roles.some((role) => privilegedRoles.has(role));
+    const isRestricted = roles.some((role) => restrictedRoles.has(role));
+    let pegawaiId: number | undefined;
+
+    if (isRestricted && !isPrivileged) {
+      const pegawai = await this.transaksiRepository.findPegawaiByUserId(
+        user.userId,
+      );
+      if (!pegawai) {
+        throw new NotFoundException('Pegawai tidak ditemukan');
+      }
+
+      if (!pegawai.statusAktif) {
+        throw new BadRequestException('Pegawai tidak aktif');
+      }
+
+      pegawaiId = pegawai.id;
+    }
 
     const tanggalFrom = args.tanggalFrom
       ? new Date(args.tanggalFrom)
@@ -449,6 +475,7 @@ export class TransaksiService {
         jenisTransaksi: args.jenisTransaksi,
         tanggalFrom,
         tanggalTo,
+        pegawaiId,
       });
 
     return {

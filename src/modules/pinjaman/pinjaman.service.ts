@@ -27,6 +27,7 @@ import { AuditTrailService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/constants/settings.constants';
 import { validateBidirectionalPaginationParams } from '../../common/utils/pagination.util';
+import type { UserFromJwt } from '../auth/interfaces/jwt-payload.interface';
 
 @Injectable()
 export class PinjamanService {
@@ -280,8 +281,80 @@ export class PinjamanService {
     };
   }
 
-  async listAllPinjaman(query: ListPinjamanQueryDto) {
+  async listPinjamanByPegawaiManagedNasabah(
+    userId: number,
+    args: { after?: number; before?: number },
+  ) {
     await this.syncOverduePinjamanStatus();
+
+    const pegawai = await this.pinjamanRepository.findPegawaiByUserId(userId);
+    if (!pegawai) {
+      throw new NotFoundException('Pegawai tidak ditemukan');
+    }
+
+    if (!pegawai.statusAktif) {
+      throw new BadRequestException('Pegawai tidak aktif');
+    }
+
+    validateBidirectionalPaginationParams(args.after, args.before);
+
+    const { data, nextCursor, prevCursor, hasNext, hasPrev } =
+      await this.pinjamanRepository.listPinjamanByPegawaiManagedNasabah({
+        pegawaiId: pegawai.id,
+        page: {
+          after: args.after,
+          before: args.before,
+          take: DEFAULT_PAGE_SIZE,
+        },
+      });
+
+    const sanitizedData = data.map(({ verifiedById, ...item }) => ({
+      ...item,
+      ...this.buildFlatSummary({
+        jumlahPinjaman: item.jumlahPinjaman,
+        bungaPersen: item.bungaPersen,
+        tenorBulan: item.tenorBulan,
+        sisaPinjaman: item.sisaPinjaman,
+      }),
+    }));
+
+    return {
+      message: 'Berhasil mengambil data pinjaman nasabah yang dikelola',
+      data: sanitizedData,
+      pagination: {
+        nextCursor,
+        prevCursor,
+        limit: DEFAULT_PAGE_SIZE,
+        hasNext,
+        hasPrev,
+      },
+    };
+  }
+
+  async listAllPinjaman(query: ListPinjamanQueryDto, user: UserFromJwt) {
+    await this.syncOverduePinjamanStatus();
+
+    const privilegedRoles = new Set(['Super Admin', 'Admin', 'Pimpinan']);
+    const restrictedRoles = new Set(['Staff', 'Kasir']);
+    const roles = user.roles ?? [];
+    const isPrivileged = roles.some((role) => privilegedRoles.has(role));
+    const isRestricted = roles.some((role) => restrictedRoles.has(role));
+    let pegawaiId: number | undefined;
+
+    if (isRestricted && !isPrivileged) {
+      const pegawai = await this.pinjamanRepository.findPegawaiByUserId(
+        user.userId,
+      );
+      if (!pegawai) {
+        throw new NotFoundException('Pegawai tidak ditemukan');
+      }
+
+      if (!pegawai.statusAktif) {
+        throw new BadRequestException('Pegawai tidak aktif');
+      }
+
+      pegawaiId = pegawai.id;
+    }
 
     const limit = DEFAULT_PAGE_SIZE;
     const after = query.after;
@@ -297,6 +370,7 @@ export class PinjamanService {
       const anchor = await this.pinjamanRepository.findPinjamanCursorAnchor(
         cursorId,
         query.status,
+        pegawaiId,
       );
 
       if (!anchor) {
@@ -319,6 +393,7 @@ export class PinjamanService {
       },
       cursorNominal,
       cursorId,
+      pegawaiId,
     });
 
     const sortedRows = typeof before === 'number' ? [...rows].reverse() : rows;
@@ -344,12 +419,14 @@ export class PinjamanService {
           nominalSort,
           nominal: sortedRows[0].jumlahPinjaman,
           id: sortedRows[0].id,
+          pegawaiId,
         }),
         this.pinjamanRepository.findPinjamanNextByNominalBoundary({
           status: query.status,
           nominalSort,
           nominal: lastRow.jumlahPinjaman,
           id: lastRow.id,
+          pegawaiId,
         }),
       ]);
 

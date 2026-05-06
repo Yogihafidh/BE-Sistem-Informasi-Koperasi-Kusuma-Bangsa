@@ -205,6 +205,83 @@ export class PinjamanRepository {
     };
   }
 
+  async listPinjamanByPegawaiManagedNasabah(args: {
+    pegawaiId: number;
+    page: CursorPageRequest;
+  }) {
+    const isBackward = typeof args.page.before === 'number';
+    const where: Prisma.PinjamanWhereInput = {
+      nasabah: {
+        pegawaiId: args.pegawaiId,
+        deletedAt: null,
+      },
+      deletedAt: null,
+      ...(typeof args.page.after === 'number'
+        ? { id: { lt: args.page.after } }
+        : {}),
+      ...(typeof args.page.before === 'number'
+        ? { id: { gt: args.page.before } }
+        : {}),
+    };
+
+    const data = await this.prisma.pinjaman.findMany({
+      where,
+      include: {
+        nasabah: true,
+        verifiedBy: true,
+      },
+      orderBy: { id: isBackward ? 'asc' : 'desc' },
+      take: args.page.take,
+    });
+
+    const rows = isBackward ? [...data].reverse() : data;
+    if (rows.length === 0) {
+      return {
+        data: rows,
+        nextCursor: null,
+        prevCursor: null,
+        hasNext: false,
+        hasPrev: false,
+      };
+    }
+
+    const prevCursor = rows[0].id;
+    const nextCursor = rows.at(-1)!.id;
+
+    const [prevItem, nextItem] = await Promise.all([
+      this.prisma.pinjaman.findFirst({
+        where: {
+          nasabah: {
+            pegawaiId: args.pegawaiId,
+            deletedAt: null,
+          },
+          deletedAt: null,
+          id: { gt: prevCursor },
+        },
+        select: { id: true },
+      }),
+      this.prisma.pinjaman.findFirst({
+        where: {
+          nasabah: {
+            pegawaiId: args.pegawaiId,
+            deletedAt: null,
+          },
+          deletedAt: null,
+          id: { lt: nextCursor },
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    return {
+      data: rows,
+      nextCursor,
+      prevCursor,
+      hasNext: Boolean(nextItem),
+      hasPrev: Boolean(prevItem),
+    };
+  }
+
   private buildNominalCursorFilter(args: {
     nominalSort: Prisma.SortOrder;
     cursorNominal: Prisma.Decimal;
@@ -321,10 +398,19 @@ export class PinjamanRepository {
     page: CursorPageRequest;
     cursorNominal?: Prisma.Decimal;
     cursorId?: number;
+    pegawaiId?: number;
   }) {
     const where: Prisma.PinjamanWhereInput = {
       deletedAt: null,
       ...(args.status ? { status: args.status } : {}),
+      ...(args.pegawaiId
+        ? {
+            nasabah: {
+              pegawaiId: args.pegawaiId,
+              deletedAt: null,
+            },
+          }
+        : {}),
     };
 
     const baseOrder = args.nominalSort;
@@ -364,11 +450,20 @@ export class PinjamanRepository {
     nominalSort: Prisma.SortOrder;
     nominal: Prisma.Decimal;
     id: number;
+    pegawaiId?: number;
   }) {
     return this.prisma.pinjaman.findFirst({
       where: {
         deletedAt: null,
         ...(args.status ? { status: args.status } : {}),
+        ...(args.pegawaiId
+          ? {
+              nasabah: {
+                pegawaiId: args.pegawaiId,
+                deletedAt: null,
+              },
+            }
+          : {}),
         AND: [
           this.buildNominalBoundaryFilter({
             nominalSort: args.nominalSort,
@@ -387,11 +482,20 @@ export class PinjamanRepository {
     nominalSort: Prisma.SortOrder;
     nominal: Prisma.Decimal;
     id: number;
+    pegawaiId?: number;
   }) {
     return this.prisma.pinjaman.findFirst({
       where: {
         deletedAt: null,
         ...(args.status ? { status: args.status } : {}),
+        ...(args.pegawaiId
+          ? {
+              nasabah: {
+                pegawaiId: args.pegawaiId,
+                deletedAt: null,
+              },
+            }
+          : {}),
         AND: [
           this.buildNominalBoundaryFilter({
             nominalSort: args.nominalSort,
@@ -405,12 +509,24 @@ export class PinjamanRepository {
     });
   }
 
-  findPinjamanCursorAnchor(cursorId: number, status?: PinjamanStatus) {
+  findPinjamanCursorAnchor(
+    cursorId: number,
+    status?: PinjamanStatus,
+    pegawaiId?: number,
+  ) {
     return this.prisma.pinjaman.findFirst({
       where: {
         id: cursorId,
         deletedAt: null,
         ...(status ? { status } : {}),
+        ...(pegawaiId
+          ? {
+              nasabah: {
+                pegawaiId,
+                deletedAt: null,
+              },
+            }
+          : {}),
       },
       select: {
         id: true,

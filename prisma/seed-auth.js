@@ -294,8 +294,10 @@ async function seed() {
       'nasabah.read',
       'nasabah.update',
       'simpanan.setor',
+      'pinjaman.read',
       'pinjaman.ajukan',
       'pinjaman.angsuran',
+      'transaksi.read',
     ];
 
     const staffPermissions = await prisma.permission.findMany({

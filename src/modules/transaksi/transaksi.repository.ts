@@ -235,6 +235,7 @@ export class TransaksiRepository {
     jenisTransaksi?: JenisTransaksi;
     tanggalFrom?: Date;
     tanggalTo?: Date;
+    pegawaiId?: number;
   }) {
     const where: Record<string, unknown> = {};
     if (args.jenisTransaksi) {
@@ -244,6 +245,12 @@ export class TransaksiRepository {
       where.tanggal = {
         ...(args.tanggalFrom ? { gte: args.tanggalFrom } : {}),
         ...(args.tanggalTo ? { lte: args.tanggalTo } : {}),
+      };
+    }
+    if (args.pegawaiId) {
+      where.nasabah = {
+        pegawaiId: args.pegawaiId,
+        deletedAt: null,
       };
     }
 
