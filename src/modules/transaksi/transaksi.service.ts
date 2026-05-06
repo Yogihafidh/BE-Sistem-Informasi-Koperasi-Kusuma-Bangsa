@@ -450,7 +450,18 @@ export class TransaksiService {
         user.userId,
       );
       if (!pegawai) {
-        throw new NotFoundException('Pegawai tidak ditemukan');
+        // If pegawai not found, return empty list (staff/kasir without pegawai has no transactions to see)
+        return {
+          message: 'Berhasil mengambil data transaksi',
+          data: [],
+          pagination: {
+            nextCursor: null,
+            prevCursor: null,
+            limit: DEFAULT_PAGE_SIZE,
+            hasNext: false,
+            hasPrev: false,
+          },
+        };
       }
 
       if (!pegawai.statusAktif) {

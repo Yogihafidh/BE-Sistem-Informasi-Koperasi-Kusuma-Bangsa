@@ -277,8 +277,10 @@ export async function seedDatabase(p?: PrismaClient): Promise<void> {
     'nasabah.read',
     'nasabah.update',
     'simpanan.setor',
+    'pinjaman.read',
     'pinjaman.ajukan',
     'pinjaman.angsuran',
+    'transaksi.read',
   ];
   const staffPerms = await client.permission.findMany({
     where: { code: { in: staffCodes } },

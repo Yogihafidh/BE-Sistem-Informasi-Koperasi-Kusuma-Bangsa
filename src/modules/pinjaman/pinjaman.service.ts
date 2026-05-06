@@ -346,7 +346,18 @@ export class PinjamanService {
         user.userId,
       );
       if (!pegawai) {
-        throw new NotFoundException('Pegawai tidak ditemukan');
+        // If pegawai not found, return empty list (staff/kasir without pegawai has no pinjaman to see)
+        return {
+          message: 'Berhasil mengambil data pinjaman',
+          data: [],
+          pagination: {
+            nextCursor: null,
+            prevCursor: null,
+            limit: DEFAULT_PAGE_SIZE,
+            hasNext: false,
+            hasPrev: false,
+          },
+        };
       }
 
       if (!pegawai.statusAktif) {
