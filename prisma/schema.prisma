@@ -1,6 +1,5 @@
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -8,7 +7,227 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ENUM
+model User {
+  email       String            @unique
+  password    String
+  createdAt   DateTime          @default(now()) @db.Timestamptz(3)
+  isActive    Boolean           @default(true)
+  lastLoginAt DateTime?         @db.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @db.Timestamptz(3)
+  username    String            @unique
+  id          Int               @id @default(autoincrement())
+  auditTrails AuditTrail[]
+  laporan     LaporanKeuangan[] @relation("LaporanGeneratedBy")
+  nasabah     Nasabah?
+  pegawai     Pegawai?
+  roles       UserRole[]
+}
+
+model Role {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique
+  description String?
+  permissions RolePermission[]
+  users       UserRole[]
+}
+
+model Permission {
+  id          Int              @id @default(autoincrement())
+  code        String           @unique
+  description String?
+  roles       RolePermission[]
+}
+
+model UserRole {
+  userId Int
+  roleId Int
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       Int
+  permissionId Int
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model Pegawai {
+  id                 Int         @id @default(autoincrement())
+  userId             Int         @unique
+  nama               String
+  jabatan            String
+  noHp               String
+  alamat             String
+  statusAktif        Boolean     @default(true)
+  createdAt          DateTime    @default(now()) @db.Timestamptz(3)
+  nasabah            Nasabah[]
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pinjamanVerifikasi Pinjaman[]  @relation("PinjamanVerifiedBy")
+  transaksi          Transaksi[]
+}
+
+model Nasabah {
+  id                 Int                @id @default(autoincrement())
+  userId             Int?               @unique
+  pegawaiId          Int
+  nomorAnggota       String             @unique
+  nama               String
+  nik                String             @unique
+  alamat             String
+  noHp               String
+  pekerjaan          String
+  instansi           String?
+  penghasilanBulanan Decimal
+  tanggalLahir       DateTime           @db.Timestamptz(3)
+  tanggalDaftar      DateTime           @db.Timestamptz(3)
+  status             NasabahStatus
+  catatan            String?
+  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @db.Timestamptz(3)
+  deletedAt          DateTime?          @db.Timestamptz(3)
+  pegawai            Pegawai            @relation(fields: [pegawaiId], references: [id])
+  user               User?              @relation(fields: [userId], references: [id])
+  dokumen            NasabahDokumen[]
+  pinjaman           Pinjaman[]
+  rekeningSimpanan   RekeningSimpanan[]
+  transaksi          Transaksi[]
+
+  @@index([status, deletedAt])
+  @@index([createdAt])
+  @@index([updatedAt])
+}
+
+model NasabahDokumen {
+  id           Int          @id @default(autoincrement())
+  nasabahId    Int
+  jenisDokumen JenisDokumen
+  fileKey      String
+  deletedAt    DateTime?    @db.Timestamptz(3)
+  uploadedAt   DateTime     @default(now()) @db.Timestamptz(3)
+  nasabah      Nasabah      @relation(fields: [nasabahId], references: [id], onDelete: Cascade)
+
+  @@index([nasabahId, deletedAt])
+}
+
+model RekeningSimpanan {
+  id            Int           @id @default(autoincrement())
+  nasabahId     Int
+  jenisSimpanan JenisSimpanan
+  saldoBerjalan Decimal
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  deletedAt     DateTime?     @db.Timestamptz(3)
+  nasabah       Nasabah       @relation(fields: [nasabahId], references: [id])
+  transaksi     Transaksi[]
+
+  @@index([nasabahId, deletedAt])
+  @@index([jenisSimpanan, deletedAt])
+}
+
+model Pinjaman {
+  id                 Int            @id @default(autoincrement())
+  nasabahId          Int
+  jumlahPinjaman     Decimal
+  bungaPersen        Decimal
+  tenorBulan         Int
+  totalPengembalian  Decimal
+  angsuranPerBulan   Decimal
+  sisaPinjaman       Decimal
+  status             PinjamanStatus
+  verifiedById       Int?
+  tanggalPersetujuan DateTime?     @db.Timestamptz(3)
+  jatuhTempo         DateTime?     @db.Timestamptz(3)
+  deletedAt          DateTime?     @db.Timestamptz(3)
+  nasabah            Nasabah        @relation(fields: [nasabahId], references: [id])
+  verifiedBy         Pegawai?       @relation("PinjamanVerifiedBy", fields: [verifiedById], references: [id])
+  transaksi          Transaksi[]
+
+  @@index([nasabahId])
+  @@index([status, deletedAt])
+  @@index([status, tanggalPersetujuan])
+  @@index([status, sisaPinjaman])
+}
+
+model Transaksi {
+  id                 Int               @id @default(autoincrement())
+  nasabahId          Int
+  pegawaiId          Int
+  rekeningSimpananId Int?
+  pinjamanId         Int?
+  jenisTransaksi     JenisTransaksi
+  nominal            Decimal
+  tanggal            DateTime          @db.Timestamptz(3)
+  metodePembayaran   String
+  catatan            String?
+  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
+  deletedAt          DateTime?         @db.Timestamptz(3)
+  nasabah            Nasabah           @relation(fields: [nasabahId], references: [id])
+  pegawai            Pegawai           @relation(fields: [pegawaiId], references: [id])
+  pinjaman           Pinjaman?         @relation(fields: [pinjamanId], references: [id])
+  rekeningSimpanan   RekeningSimpanan? @relation(fields: [rekeningSimpananId], references: [id])
+
+  @@index([nasabahId])
+  @@index([nasabahId, tanggal])
+  @@index([rekeningSimpananId])
+  @@index([pinjamanId])
+  @@index([tanggal])
+  @@index([jenisTransaksi, tanggal])
+}
+
+model AuditTrail {
+  id         String      @id @default(uuid()) @db.Uuid
+  userId     Int?
+  entityName String?
+  entityId   Int?
+  action     AuditAction
+  oldValue   Json?
+  newValue   Json?
+  ipAddress  String?
+  createdAt  DateTime    @default(now()) @db.Timestamptz(3)
+  user       User?       @relation(fields: [userId], references: [id])
+
+  @@index([entityName, entityId])
+  @@index([createdAt])
+}
+
+model LaporanKeuangan {
+  id             Int           @id @default(autoincrement())
+  periodeBulan   Int
+  periodeTahun   Int
+  totalSimpanan  Decimal
+  totalPenarikan Decimal
+  totalPinjaman  Decimal
+  totalAngsuran  Decimal
+  saldoAkhir     Decimal
+  statusLaporan  StatusLaporan
+  generatedById  Int
+  generatedAt    DateTime      @default(now()) @db.Timestamptz(3)
+  generatedBy    User          @relation("LaporanGeneratedBy", fields: [generatedById], references: [id])
+
+  @@unique([periodeBulan, periodeTahun])
+  @@index([periodeTahun, periodeBulan])
+}
+
+model Setting {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String
+  valueType   SettingValueType @default(STRING)
+  description String?
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+}
+
+enum SettingValueType {
+  STRING
+  NUMBER
+  BOOLEAN
+  JSON
+}
+
 enum NasabahStatus {
   PENDING
   AKTIF
@@ -31,6 +250,7 @@ enum JenisSimpanan {
 enum PinjamanStatus {
   PENDING
   DISETUJUI
+  TERLAMBAT
   DITOLAK
   LUNAS
 }
@@ -42,237 +262,20 @@ enum JenisTransaksi {
   ANGSURAN
 }
 
-enum StatusTransaksi {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
 enum AuditAction {
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
   CREATE
   UPDATE
   DELETE
+  APPROVE
+  REJECT
+  GENERATE_REPORT
+  FINALIZE_REPORT
 }
 
 enum StatusLaporan {
   DRAFT
   FINAL
-}
-
-// MODUL AUTH (RBAC)
-// 1. User
-model User {
-  id           Int       @id @default(autoincrement())
-  username     String    @unique
-  email        String    @unique
-  password     String    // hashed (bcrypt/argon2)
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  roles        UserRole[]
-  pegawai      Pegawai?
-  nasabah      Nasabah?
-  auditTrails  AuditTrail[]
-  laporan      LaporanKeuangan[] @relation("LaporanGeneratedBy")
-}
-
-// 2. Role, Permission, Pivot
-model Role {
-  id          Int              @id @default(autoincrement())
-  name        String           @unique
-  description String?
-
-  users       UserRole[]
-  permissions RolePermission[]
-}
-
-model Permission {
-  id          Int              @id @default(autoincrement())
-  code        String           @unique
-  description String?
-
-  roles       RolePermission[]
-}
-
-model UserRole {
-  userId Int
-  roleId Int
-
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@id([userId, roleId])
-}
-
-model RolePermission {
-  roleId       Int
-  permissionId Int
-
-  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-
-  @@id([roleId, permissionId])
-}
-
-// MODUL PEGAWAI & NASABAH
-// 1. Pegawai
-model Pegawai {
-  id          Int       @id @default(autoincrement())
-  userId      Int       @unique
-  nama        String
-  jabatan     String
-  noHp        String
-  alamat      String
-  statusAktif Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  nasabah     Nasabah[]
-  transaksi   Transaksi[]
-  pinjamanVerifikasi Pinjaman[] @relation("PinjamanVerifiedBy")
-}
-
-// 2. Nasabah
-model Nasabah {
-  id                 Int            @id @default(autoincrement())
-  userId             Int?           @unique
-  pegawaiId          Int
-  nomorAnggota       String         @unique
-  nama               String
-  nik                String         @unique
-  alamat             String
-  noHp               String
-  pekerjaan          String
-  instansi           String?
-  penghasilanBulanan Decimal
-  tanggalLahir       DateTime
-  tanggalDaftar      DateTime
-  status             NasabahStatus
-  catatan            String?
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
-  deletedAt          DateTime?      // soft delete
-
-  user               User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
-  pegawai            Pegawai         @relation(fields: [pegawaiId], references: [id])
-  dokumen            NasabahDokumen[]
-  rekeningSimpanan   RekeningSimpanan[]
-  pinjaman           Pinjaman[]
-  transaksi          Transaksi[]
-}
-
-// 3. NasabahDokumen
-model NasabahDokumen {
-  id           Int          @id @default(autoincrement())
-  nasabahId    Int
-  jenisDokumen JenisDokumen
-  fileUrl      String
-  uploadedAt   DateTime     @default(now())
-
-  nasabah      Nasabah      @relation(fields: [nasabahId], references: [id], onDelete: Cascade)
-}
-
-// MODUL SIMPANAN
-model RekeningSimpanan {
-  id            Int           @id @default(autoincrement())
-  nasabahId     Int
-  jenisSimpanan JenisSimpanan
-  saldoBerjalan Decimal
-  createdAt     DateTime      @default(now())
-  deletedAt     DateTime?     // soft delete
-
-  nasabah       Nasabah       @relation(fields: [nasabahId], references: [id])
-  transaksi     Transaksi[]
-}
-
-// MODUL PINJAMAN
-model Pinjaman {
-  id                 Int             @id @default(autoincrement())
-  nasabahId          Int
-  jumlahPinjaman     Decimal
-  bungaPersen        Decimal
-  tenorBulan         Int
-  sisaPinjaman       Decimal
-  status             PinjamanStatus
-  verifiedById       Int?
-  tanggalPersetujuan DateTime?
-  deletedAt          DateTime?        // soft delete
-
-  nasabah            Nasabah          @relation(fields: [nasabahId], references: [id])
-  verifiedBy         Pegawai?         @relation("PinjamanVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
-  transaksi          Transaksi[]
-}
-
-// MODUL TRANSAKSI (CORE)
-model Transaksi {
-  id                 Int              @id @default(autoincrement())
-  nasabahId          Int
-  pegawaiId          Int
-  rekeningSimpananId Int?
-  pinjamanId         Int?
-  jenisTransaksi     JenisTransaksi
-  nominal            Decimal
-  tanggal            DateTime
-  metodePembayaran   String
-  statusTransaksi    StatusTransaksi
-  urlBuktiTransaksi  String?
-  catatan            String?
-  createdAt          DateTime         @default(now())
-  deletedAt          DateTime?        // soft delete
-
-  nasabah            Nasabah           @relation(fields: [nasabahId], references: [id])
-  pegawai            Pegawai           @relation(fields: [pegawaiId], references: [id])
-  rekeningSimpanan   RekeningSimpanan? @relation(fields: [rekeningSimpananId], references: [id])
-  pinjaman           Pinjaman?         @relation(fields: [pinjamanId], references: [id])
-
-  @@index([nasabahId])
-  @@index([rekeningSimpananId])
-  @@index([pinjamanId])
-  @@index([tanggal])
-}
-
-// AUDIT TRAIL
-model AuditTrail {
-  id         Int         @id @default(autoincrement())
-  userId     Int
-  entityName String
-  entityId   Int
-  action     AuditAction
-  oldValue   Json?
-  newValue   Json?
-  createdAt  DateTime    @default(now())
-
-  user       User        @relation(fields: [userId], references: [id])
-
-  @@index([entityName, entityId])
-  @@index([createdAt])
-}
-
-// LAPORAN KEUANGAN
-model LaporanKeuangan {
-  id             Int           @id @default(autoincrement())
-  periodeBulan   Int
-  periodeTahun   Int
-  totalSimpanan  Decimal
-  totalPenarikan Decimal
-  totalPinjaman  Decimal
-  totalAngsuran  Decimal
-  saldoAkhir     Decimal
-  statusLaporan  StatusLaporan
-  generatedById  Int
-  generatedAt    DateTime      @default(now())
-
-  generatedBy    User          @relation("LaporanGeneratedBy", fields: [generatedById], references: [id])
-}
-
-// SETTINGS
-model Setting {
-  id          Int       @id @default(autoincrement())
-  key         String    @unique
-  value       String
-  description String?
-  updatedAt   DateTime  @updatedAt
 }

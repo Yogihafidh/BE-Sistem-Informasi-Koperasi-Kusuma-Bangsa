@@ -1,0 +1,3 @@
+-- Restored missing migration file to satisfy Prisma migration integrity.
+-- This migration folder previously existed without migration.sql.
+-- No-op by design.

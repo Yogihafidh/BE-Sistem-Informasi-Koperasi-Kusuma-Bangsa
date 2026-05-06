@@ -1,0 +1,364 @@
+import { INestApplication } from '@nestjs/common';
+import {
+  createTestApp,
+  cleanupDatabase,
+  seedDatabase,
+  closeTestApp,
+  getPrisma,
+} from '../helpers/test-app.helper';
+import {
+  loginAsAdmin,
+  authDelete,
+  authGet,
+  authPatch,
+  authPost,
+} from '../helpers/auth.helper';
+import { createFullNasabah } from '../helpers/factory.helper';
+
+/**
+ * Integration test untuk memvalidasi endpoint modul Simpanan.
+ *
+ * Tujuan:
+ * - Memastikan transaksi setoran dan penarikan memengaruhi saldo dengan benar
+ * - Memastikan rekening simpanan nasabah dapat diakses sesuai aturan
+ * - Mencegah regression pada alur simpanan pokok, wajib, dan sukarela
+ */
+describe('Simpanan Module (Integration)', () => {
+  let app: INestApplication;
+  let adminToken: string;
+  let nasabahId: number;
+  let rekeningSukarela: {
+    id: number;
+    jenisSimpanan: string;
+    saldoBerjalan: string;
+  };
+  let rekeningPokok: {
+    id: number;
+    jenisSimpanan: string;
+    saldoBerjalan: string;
+  };
+  let rekeningWajib: {
+    id: number;
+    jenisSimpanan: string;
+    saldoBerjalan: string;
+  };
+
+  beforeAll(async () => {
+    // Inisialisasi aplikasi NestJS dalam mode testing
+    app = await createTestApp();
+
+    // Reset database untuk memastikan kondisi awal selalu bersih dan konsisten
+    await cleanupDatabase(getPrisma());
+
+    // Isi database dengan data awal untuk kebutuhan skenario integration
+    await seedDatabase(getPrisma());
+
+    // Login sebagai admin untuk mendapatkan access token endpoint protected
+    const tokens = await loginAsAdmin(app);
+    adminToken = tokens.accessToken;
+
+    // Create a verified nasabah (auto-creates 3 rekening)
+    const { nasabah, rekeningList } = await createFullNasabah(app, adminToken);
+    nasabahId = nasabah.id;
+
+    rekeningSukarela = rekeningList.find(
+      (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'SUKARELA',
+    )!;
+    rekeningPokok = rekeningList.find(
+      (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'POKOK',
+    )!;
+    rekeningWajib = rekeningList.find(
+      (r: { jenisSimpanan: string }) => r.jenisSimpanan === 'WAJIB',
+    )!;
+  });
+
+  afterAll(async () => {
+    // Menutup koneksi aplikasi setelah seluruh test selesai dijalankan
+    await closeTestApp(app);
+  });
+
+  describe('GET /api/simpanan/nasabah/:nasabahId', () => {
+    // Ambil daftar nasabah dengan filter dan pagination
+    it('should list 3 rekening simpanan for verified nasabah', async () => {
+      const res = await authGet(
+        app,
+        `/api/simpanan/nasabah/${nasabahId}`,
+        adminToken,
+      ).expect(200);
+
+      expect(res.body.data).toHaveLength(3);
+    });
+
+    // Cari nasabah dengan id yang tidak ada -> harus 404
+    it('should return 404 for non-existent nasabah', async () => {
+      await authGet(app, '/api/simpanan/nasabah/99999', adminToken).expect(404);
+    });
+  });
+
+  describe('POST /api/simpanan/rekening/:id/setoran', () => {
+    // Setoran ke rekening sukarela -> saldo harus bertambah
+    it('should process setoran on SUKARELA rekening', async () => {
+      const res = await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningSukarela.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 500000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(201);
+
+      expect(res.body.message).toContain('berhasil');
+      expect(res.body.data).toHaveProperty('nominal');
+    });
+
+    // Perubahan rekening simpanan harus konsisten setelah disimpan
+    it('should update saldo after setoran', async () => {
+      const res = await authGet(
+        app,
+        `/api/simpanan/nasabah/${nasabahId}`,
+        adminToken,
+      ).expect(200);
+
+      const rekening = res.body.data.find(
+        (item: { id: number }) => item.id === rekeningSukarela.id,
+      );
+      expect(rekening).toBeDefined();
+
+      const saldo = Number.parseFloat(rekening.saldoBerjalan);
+      expect(saldo).toBeGreaterThanOrEqual(500000);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningPokok.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 10000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningPokok.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 50000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(201);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningPokok.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 50000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningWajib.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 10000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningWajib.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 25000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(201);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningWajib.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: 25000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+    });
+
+    // Payload yang salah format tidak boleh diproses -> 400
+    it('should reject invalid nominal', async () => {
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningSukarela.id}/setoran`,
+        adminToken,
+      )
+        .send({
+          nominal: -100,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+    });
+
+    // Data request tidak sesuai aturan -> harus 400
+    it('should return 400 for rekening id outside db int range', async () => {
+      await authPost(
+        app,
+        '/api/simpanan/rekening/100000000000000000/setoran',
+        adminToken,
+      )
+        .send({
+          nominal: 100,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+    });
+  });
+
+  describe('POST /api/simpanan/rekening/:id/penarikan', () => {
+    // Penarikan dengan saldo cukup -> transaksi harus berhasil
+    it('should process penarikan when saldo sufficient', async () => {
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningPokok.id}/penarikan`,
+        adminToken,
+      )
+        .send({
+          nominal: 10000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+
+      // First deposit enough
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningSukarela.id}/setoran`,
+        adminToken,
+      )
+        .send({ nominal: 1000000, metodePembayaran: 'CASH' })
+        .expect(201);
+
+      const res = await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningSukarela.id}/penarikan`,
+        adminToken,
+      )
+        .send({
+          nominal: 200000,
+          metodePembayaran: 'TRANSFER',
+        })
+        .expect(201);
+
+      expect(res.body.message).toContain('berhasil');
+
+      await authPatch(app, `/api/nasabah/${nasabahId}/status`, adminToken)
+        .send({ status: 'NONAKTIF' })
+        .expect(200);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningPokok.id}/penarikan`,
+        adminToken,
+      )
+        .send({
+          nominal: 50000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(201);
+
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningWajib.id}/penarikan`,
+        adminToken,
+      )
+        .send({
+          nominal: 25000,
+          metodePembayaran: 'CASH',
+        })
+        .expect(201);
+    });
+
+    // Payload yang salah format tidak boleh diproses -> 400
+    it('should reject penarikan exceeding saldo', async () => {
+      await authPost(
+        app,
+        `/api/simpanan/rekening/${rekeningSukarela.id}/penarikan`,
+        adminToken,
+      )
+        .send({
+          nominal: 999999999,
+          metodePembayaran: 'CASH',
+        })
+        .expect(400);
+    });
+  });
+
+  describe('GET /api/simpanan/rekening/:id/transaksi', () => {
+    // Ambil daftar rekening simpanan dengan filter dan pagination
+    it('should list transaksi history with cursor pagination', async () => {
+      const res = await authGet(
+        app,
+        `/api/simpanan/rekening/${rekeningSukarela.id}/transaksi`,
+        adminToken,
+      ).expect(200);
+
+      expect(res.body.data).toBeInstanceOf(Array);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+      expect(res.body.pagination).toBeDefined();
+    });
+  });
+
+  describe('DELETE /api/simpanan/rekening/:id', () => {
+    // Coba soft delete saat saldo masih ada -> harus ditolak
+    it('should reject soft-delete when saldo is still greater than zero', async () => {
+      await authDelete(
+        app,
+        `/api/simpanan/rekening/${rekeningSukarela.id}`,
+        adminToken,
+      ).expect(400);
+    });
+
+    // Soft delete rekening saldo nol -> data tidak muncul lagi di list
+    it('should soft-delete rekening with zero saldo', async () => {
+      const { nasabah, rekeningList } = await createFullNasabah(
+        app,
+        adminToken,
+      );
+      const rekeningZero = rekeningList.find(
+        (item: { saldoBerjalan: string }) =>
+          Number.parseFloat(item.saldoBerjalan) === 0,
+      );
+
+      expect(rekeningZero).toBeDefined();
+
+      const res = await authDelete(
+        app,
+        `/api/simpanan/rekening/${rekeningZero!.id}`,
+        adminToken,
+      ).expect(200);
+
+      expect(res.body.message).toBe('Rekening simpanan berhasil dihapus');
+
+      const listRes = await authGet(
+        app,
+        `/api/simpanan/nasabah/${nasabah.id}`,
+        adminToken,
+      ).expect(200);
+      expect(
+        listRes.body.data.find(
+          (item: { id: number }) => item.id === rekeningZero!.id,
+        ),
+      ).toBeUndefined();
+    });
+  });
+});
